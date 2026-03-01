@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-AIグラウンディング手法マップ — PDF解説資料生成スクリプト
+AIグラウンディング手法マップ — PDF解説資料 v2
 
-IPAゴシックフォントを使用して日本語PDF資料を生成する。
+再設計方針:
+- 「機能が異なるもの」を同列に比較しない
+- 4層モデルで手法を整理し、層内でのみ比較する
+- 各手法の原理（なぜ効くのか）を明記する
+- 層間の合成パターンを示す
 """
 
 import os
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm, cm
-from reportlab.lib.colors import (
-    HexColor, white, black, Color
-)
+from reportlab.lib.colors import HexColor, white, black
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
@@ -18,7 +20,7 @@ from reportlab.platypus import (
 )
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT, TA_JUSTIFY
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
 
 import matplotlib
 matplotlib.use('Agg')
@@ -31,11 +33,8 @@ import numpy as np
 # ==============================================================================
 FONT_PATH = "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf"
 FONT_PATH_P = "/usr/share/fonts/opentype/ipafont-gothic/ipagp.ttf"
-
 pdfmetrics.registerFont(TTFont('IPAGothic', FONT_PATH))
 pdfmetrics.registerFont(TTFont('IPAPGothic', FONT_PATH_P))
-
-# matplotlib用フォント設定
 fm.fontManager.addfont(FONT_PATH)
 plt.rcParams['font.family'] = 'IPAGothic'
 plt.rcParams['axes.unicode_minus'] = False
@@ -43,329 +42,206 @@ plt.rcParams['axes.unicode_minus'] = False
 # ==============================================================================
 # カラーパレット
 # ==============================================================================
-C_PRIMARY    = HexColor('#1a365d')   # ダークネイビー
-C_SECONDARY  = HexColor('#2b6cb0')   # ブルー
-C_ACCENT     = HexColor('#e53e3e')   # レッド
-C_BG_LIGHT   = HexColor('#f7fafc')   # 薄グレー
-C_BG_HEADER  = HexColor('#2d3748')   # ダークグレー
-C_TEXT       = HexColor('#1a202c')   # ほぼ黒
-C_TEXT_LIGHT = HexColor('#4a5568')   # グレーテキスト
-C_BORDER     = HexColor('#e2e8f0')   # ボーダー
+C_PRIMARY    = HexColor('#1a365d')
+C_SECONDARY  = HexColor('#2b6cb0')
+C_ACCENT     = HexColor('#e53e3e')
+C_BG_LIGHT   = HexColor('#f7fafc')
+C_BG_HEADER  = HexColor('#2d3748')
+C_TEXT       = HexColor('#1a202c')
+C_TEXT_LIGHT = HexColor('#4a5568')
+C_BORDER     = HexColor('#e2e8f0')
 
-# 象限カラー
-C_Q1 = HexColor('#2b6cb0')  # 右上 - 青
-C_Q2 = HexColor('#2f855a')  # 左上 - 緑
-C_Q3 = HexColor('#d69e2e')  # 左下 - 黄
-C_Q4 = HexColor('#c53030')  # 右下 - 赤
-
-# カテゴリカラー
-CAT_COLORS = {
-    'A': '#2f855a',  # 緑: 形式的知識表現
-    'B': '#2b6cb0',  # 青: 検索・文書ベース
-    'C': '#d69e2e',  # 黄: リアルタイム接続
-    'D': '#9b2c2c',  # 赤: 暗黙的・学習
-    'E': '#6b46c1',  # 紫: ハイブリッド
-}
+# 層カラー
+L1_COLOR = '#2f855a'  # 緑: 知識の構造化
+L2_COLOR = '#2b6cb0'  # 青: 知識の配送
+L3_COLOR = '#d69e2e'  # 黄: モデルへの統合
+L4_COLOR = '#9b2c2c'  # 赤: 出力の保証
 
 # ==============================================================================
 # スタイル定義
 # ==============================================================================
 def make_styles():
-    styles = {}
-    styles['title'] = ParagraphStyle(
-        'Title', fontName='IPAGothic', fontSize=28, leading=36,
-        textColor=white, alignment=TA_CENTER, spaceAfter=6*mm
-    )
-    styles['subtitle'] = ParagraphStyle(
-        'Subtitle', fontName='IPAPGothic', fontSize=14, leading=20,
-        textColor=HexColor('#a0aec0'), alignment=TA_CENTER, spaceAfter=4*mm
-    )
-    styles['h1'] = ParagraphStyle(
-        'H1', fontName='IPAGothic', fontSize=20, leading=28,
-        textColor=C_PRIMARY, spaceBefore=8*mm, spaceAfter=4*mm,
-        borderPadding=(0, 0, 2*mm, 0)
-    )
-    styles['h2'] = ParagraphStyle(
-        'H2', fontName='IPAGothic', fontSize=15, leading=22,
-        textColor=C_SECONDARY, spaceBefore=6*mm, spaceAfter=3*mm
-    )
-    styles['h3'] = ParagraphStyle(
-        'H3', fontName='IPAGothic', fontSize=12, leading=18,
-        textColor=C_TEXT, spaceBefore=4*mm, spaceAfter=2*mm
-    )
-    styles['body'] = ParagraphStyle(
+    s = {}
+    s['title'] = ParagraphStyle(
+        'Title', fontName='IPAGothic', fontSize=26, leading=34,
+        textColor=white, alignment=TA_CENTER, spaceAfter=6*mm)
+    s['subtitle'] = ParagraphStyle(
+        'Subtitle', fontName='IPAPGothic', fontSize=13, leading=20,
+        textColor=HexColor('#a0aec0'), alignment=TA_CENTER, spaceAfter=4*mm)
+    s['h1'] = ParagraphStyle(
+        'H1', fontName='IPAGothic', fontSize=18, leading=26,
+        textColor=C_PRIMARY, spaceBefore=6*mm, spaceAfter=4*mm)
+    s['h2'] = ParagraphStyle(
+        'H2', fontName='IPAGothic', fontSize=14, leading=20,
+        textColor=C_SECONDARY, spaceBefore=5*mm, spaceAfter=3*mm)
+    s['h3'] = ParagraphStyle(
+        'H3', fontName='IPAGothic', fontSize=11, leading=16,
+        textColor=C_TEXT, spaceBefore=3*mm, spaceAfter=2*mm)
+    s['body'] = ParagraphStyle(
         'Body', fontName='IPAPGothic', fontSize=9.5, leading=16,
-        textColor=C_TEXT, spaceAfter=2*mm, alignment=TA_JUSTIFY
-    )
-    styles['body_small'] = ParagraphStyle(
+        textColor=C_TEXT, spaceAfter=2*mm, alignment=TA_JUSTIFY)
+    s['body_small'] = ParagraphStyle(
         'BodySmall', fontName='IPAPGothic', fontSize=8.5, leading=14,
-        textColor=C_TEXT_LIGHT, spaceAfter=1.5*mm
-    )
-    styles['bullet'] = ParagraphStyle(
+        textColor=C_TEXT_LIGHT, spaceAfter=1.5*mm)
+    s['bullet'] = ParagraphStyle(
         'Bullet', fontName='IPAPGothic', fontSize=9.5, leading=15,
-        textColor=C_TEXT, leftIndent=8*mm, bulletIndent=3*mm,
-        spaceAfter=1*mm
-    )
-    styles['caption'] = ParagraphStyle(
+        textColor=C_TEXT, leftIndent=8*mm, bulletIndent=3*mm, spaceAfter=1*mm)
+    s['caption'] = ParagraphStyle(
         'Caption', fontName='IPAPGothic', fontSize=8, leading=12,
-        textColor=C_TEXT_LIGHT, alignment=TA_CENTER, spaceAfter=2*mm
-    )
-    styles['toc'] = ParagraphStyle(
+        textColor=C_TEXT_LIGHT, alignment=TA_CENTER, spaceAfter=2*mm)
+    s['toc'] = ParagraphStyle(
         'TOC', fontName='IPAPGothic', fontSize=11, leading=20,
-        textColor=C_PRIMARY, leftIndent=5*mm
-    )
-    styles['page_num'] = ParagraphStyle(
-        'PageNum', fontName='IPAPGothic', fontSize=8, textColor=C_TEXT_LIGHT,
-        alignment=TA_CENTER
-    )
-    styles['table_header'] = ParagraphStyle(
-        'TableHeader', fontName='IPAGothic', fontSize=8.5, leading=12,
-        textColor=white, alignment=TA_CENTER
-    )
-    styles['table_cell'] = ParagraphStyle(
-        'TableCell', fontName='IPAPGothic', fontSize=8, leading=12,
-        textColor=C_TEXT
-    )
-    styles['table_cell_center'] = ParagraphStyle(
-        'TableCellCenter', fontName='IPAPGothic', fontSize=8, leading=12,
-        textColor=C_TEXT, alignment=TA_CENTER
-    )
-    styles['quadrant_title'] = ParagraphStyle(
-        'QuadrantTitle', fontName='IPAGothic', fontSize=11, leading=16,
-        textColor=C_PRIMARY, spaceBefore=3*mm, spaceAfter=1.5*mm
-    )
-    return styles
+        textColor=C_PRIMARY, leftIndent=5*mm)
+    s['th'] = ParagraphStyle(
+        'TH', fontName='IPAGothic', fontSize=8.5, leading=12,
+        textColor=white, alignment=TA_CENTER)
+    s['tc'] = ParagraphStyle(
+        'TC', fontName='IPAPGothic', fontSize=8, leading=12, textColor=C_TEXT)
+    s['tcc'] = ParagraphStyle(
+        'TCC', fontName='IPAPGothic', fontSize=8, leading=12,
+        textColor=C_TEXT, alignment=TA_CENTER)
+    return s
 
-
-# ==============================================================================
-# ページテンプレート
-# ==============================================================================
 def add_page_number(canvas, doc):
     canvas.saveState()
     canvas.setFont('IPAPGothic', 8)
     canvas.setFillColor(C_TEXT_LIGHT)
-    page_num = canvas.getPageNumber()
-    if page_num > 1:
-        canvas.drawCentredString(A4[0]/2, 12*mm, f"— {page_num} —")
-        # ヘッダーライン
+    pn = canvas.getPageNumber()
+    if pn > 1:
+        canvas.drawCentredString(A4[0]/2, 12*mm, f"- {pn} -")
         canvas.setStrokeColor(C_BORDER)
         canvas.setLineWidth(0.5)
-        canvas.line(20*mm, A4[1] - 15*mm, A4[0] - 20*mm, A4[1] - 15*mm)
-        # フッターライン
-        canvas.line(20*mm, 18*mm, A4[0] - 20*mm, 18*mm)
+        canvas.line(20*mm, A4[1]-15*mm, A4[0]-20*mm, A4[1]-15*mm)
+        canvas.line(20*mm, 18*mm, A4[0]-20*mm, 18*mm)
     canvas.restoreState()
 
 
 # ==============================================================================
-# 地図1: 意味の明示度×運用結合度 スキャッタープロット生成
+# 図1: 4層モデル概念図
 # ==============================================================================
-def generate_map1_chart(output_path):
-    techniques = [
-        ("形式論理/\nルールエンジン",   2.0, 5.0, 'A'),
-        ("OWLオントロジー",            2.5, 4.7, 'A'),
-        ("デジタルツイン",              5.0, 4.8, 'C'),
-        ("ナレッジグラフ",              2.5, 4.2, 'A'),
-        ("Graph RAG",                  3.5, 4.3, 'E'),
-        ("ツール利用/MCP",             4.5, 4.0, 'C'),
-        ("セマンティック\nレイヤー",     3.0, 4.0, 'E'),
-        ("タクソノミー/\n統制語彙",      1.5, 3.2, 'A'),
-        ("スキーマ/\nデータモデル",      2.5, 3.0, 'A'),
-        ("Advanced RAG",              3.5, 3.0, 'B'),
-        ("ガードレール/\nConstitutional", 4.5, 3.2, 'D'),
-        ("Feature Store",             4.5, 3.0, 'E'),
-        ("構造化\nプロンプティング",     1.0, 2.5, 'B'),
-        ("エンベディング\n検索",         2.5, 2.2, 'B'),
-        ("Naive RAG",                  3.0, 2.0, 'B'),
-        ("マルチモーダル",              4.5, 2.2, 'C'),
-        ("メモリシステム",              2.8, 2.0, 'E'),
-        ("平ドキュメント",              1.0, 1.2, 'B'),
-        ("ファインチューニング\n/RLHF",  2.0, 1.0, 'D'),
+def generate_layer_model(output_path):
+    fig, ax = plt.subplots(figsize=(12, 7))
+    ax.set_xlim(0, 12)
+    ax.set_ylim(0, 8)
+    ax.axis('off')
+
+    layers = [
+        (0.8, 6.0, 10.4, 1.3, L4_COLOR, '第4層: 出力の保証',
+         'ガードレール / Constitutional AI / スキーマバリデーション',
+         '「AIの出力を制約・検証する」'),
+        (0.8, 4.3, 10.4, 1.3, L3_COLOR, '第3層: モデルへの統合',
+         'ファインチューニング / RLHF / 構造化プロンプティング',
+         '「知識をモデルの内部に統合する」'),
+        (0.8, 2.6, 10.4, 1.3, L2_COLOR, '第2層: 知識の配送',
+         'RAG各種 / ツール利用(MCP) / エンベディング検索 / メモリシステム',
+         '「知識をモデルに届ける」'),
+        (0.8, 0.9, 10.4, 1.3, L1_COLOR, '第1層: 知識の構造化',
+         'オントロジー / ナレッジグラフ / タクソノミー / スキーマ',
+         '「現実世界の知識を構造化して表現する」'),
     ]
 
-    fig, ax = plt.subplots(figsize=(11, 8))
+    for x, y, w, h, color, title, techs, principle in layers:
+        from matplotlib.patches import FancyBboxPatch
+        rect = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.08",
+                              facecolor=color, edgecolor='white',
+                              linewidth=2, alpha=0.85)
+        ax.add_patch(rect)
+        ax.text(x + 0.3, y + h - 0.35, title, fontsize=13,
+                color='white', fontweight='bold', va='top')
+        ax.text(x + 0.3, y + h - 0.75, principle, fontsize=9,
+                color='#e2e8f0', va='top', style='italic')
+        ax.text(x + 0.3, y + 0.2, techs, fontsize=8.5,
+                color='#e2e8f0', va='bottom')
 
-    # 象限の背景
-    ax.axhline(y=3.0, color='#cbd5e0', linewidth=0.8, linestyle='--', alpha=0.7)
-    ax.axvline(x=3.0, color='#cbd5e0', linewidth=0.8, linestyle='--', alpha=0.7)
+    # 矢印（層間の流れ）
+    for y_start, y_end in [(2.25, 2.6), (3.9, 4.3), (5.6, 6.0)]:
+        ax.annotate('', xy=(6, y_end), xytext=(6, y_start),
+                    arrowprops=dict(arrowstyle='->', color='#a0aec0',
+                                   lw=2.5, alpha=0.7))
 
-    # 象限ラベル
-    ax.text(1.5, 4.7, '象限II: 知識の宝庫', fontsize=10, ha='center',
-            color='#2f855a', alpha=0.5, fontweight='bold')
-    ax.text(4.2, 4.7, '象限I: デジタル統治', fontsize=10, ha='center',
-            color='#2b6cb0', alpha=0.5, fontweight='bold')
-    ax.text(1.5, 1.3, '象限III: 軽量スタート', fontsize=10, ha='center',
-            color='#d69e2e', alpha=0.5, fontweight='bold')
-    ax.text(4.2, 1.3, '象限IV: ブラックボックス接続', fontsize=10, ha='center',
-            color='#c53030', alpha=0.5, fontweight='bold')
+    # 左に注釈
+    ax.text(0.15, 1.55, '知識\nソース', fontsize=9, color='#718096',
+            ha='center', va='center', fontweight='bold')
+    ax.text(0.15, 3.25, '配送\n経路', fontsize=9, color='#718096',
+            ha='center', va='center', fontweight='bold')
+    ax.text(0.15, 4.95, '統合\n方式', fontsize=9, color='#718096',
+            ha='center', va='center', fontweight='bold')
+    ax.text(0.15, 6.65, '品質\n保証', fontsize=9, color='#718096',
+            ha='center', va='center', fontweight='bold')
 
-    # 背景塗り
-    ax.fill_between([0.5, 3.0], 3.0, 5.5, alpha=0.04, color='#2f855a')
-    ax.fill_between([3.0, 5.5], 3.0, 5.5, alpha=0.04, color='#2b6cb0')
-    ax.fill_between([0.5, 3.0], 0.5, 3.0, alpha=0.04, color='#d69e2e')
-    ax.fill_between([3.0, 5.5], 0.5, 3.0, alpha=0.04, color='#c53030')
-
-    cat_labels = {
-        'A': '形式的知識表現',
-        'B': '検索・文書ベース',
-        'C': 'リアルタイム接続',
-        'D': '暗黙的・学習系',
-        'E': 'ハイブリッド・新興',
-    }
-
-    plotted_cats = set()
-    for name, x, y, cat in techniques:
-        color = CAT_COLORS[cat]
-        label = cat_labels[cat] if cat not in plotted_cats else None
-        plotted_cats.add(cat)
-        ax.scatter(x, y, c=color, s=120, zorder=5, edgecolors='white',
-                   linewidth=1.2, label=label, alpha=0.9)
-        # テキスト位置の微調整
-        offset_x, offset_y = 0.08, 0.12
-        if 'Graph RAG' in name:
-            offset_x, offset_y = 0.12, 0.15
-        elif 'Naive' in name:
-            offset_x, offset_y = 0.12, -0.18
-        elif 'Advanced' in name:
-            offset_y = 0.15
-        elif 'メモリ' in name:
-            offset_x, offset_y = 0.12, -0.15
-        elif 'Feature' in name:
-            offset_x, offset_y = 0.12, -0.15
-        elif 'エンベディング' in name:
-            offset_y = -0.2
-        ax.annotate(name, (x, y), fontsize=7, color='#2d3748',
-                    xytext=(x + offset_x, y + offset_y), fontweight='bold')
-
-    # 進化の矢印
-    arrows = [
-        (3.0, 2.0, 3.5, 3.0, '#718096'),   # Naive RAG → Advanced RAG
-        (3.5, 3.0, 3.5, 4.3, '#718096'),   # Advanced RAG → Graph RAG
-        (1.0, 1.2, 3.0, 2.0, '#a0aec0'),   # 平ドキュメント → Naive RAG
-    ]
-    for x1, y1, x2, y2, color in arrows:
-        ax.annotate('', xy=(x2, y2), xytext=(x1, y1),
-                    arrowprops=dict(arrowstyle='->', color=color,
-                                   lw=1.2, alpha=0.5,
-                                   connectionstyle='arc3,rad=0.15'))
-
-    ax.set_xlim(0.5, 5.5)
-    ax.set_ylim(0.5, 5.5)
-    ax.set_xlabel('運用結合度・ガバナンス性  →', fontsize=11, labelpad=10)
-    ax.set_ylabel('意味の明示度・形式性  →', fontsize=11, labelpad=10)
-    ax.set_xticks([1, 2, 3, 4, 5])
-    ax.set_xticklabels(['低', '', '中', '', '高'])
-    ax.set_yticks([1, 2, 3, 4, 5])
-    ax.set_yticklabels(['低', '', '中', '', '高'])
-    ax.legend(loc='lower right', fontsize=8, framealpha=0.9,
-              edgecolor='#e2e8f0')
-    ax.set_facecolor('#fafafa')
-    ax.grid(True, alpha=0.2)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
+    # 右に共通問い
+    ax.text(11.8, 1.55, '何を\n知るか', fontsize=9, color='#718096',
+            ha='center', va='center', fontweight='bold')
+    ax.text(11.8, 3.25, 'どう\n届けるか', fontsize=9, color='#718096',
+            ha='center', va='center', fontweight='bold')
+    ax.text(11.8, 4.95, 'どう\n入れるか', fontsize=9, color='#718096',
+            ha='center', va='center', fontweight='bold')
+    ax.text(11.8, 6.65, 'どう\n守るか', fontsize=9, color='#718096',
+            ha='center', va='center', fontweight='bold')
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=200, bbox_inches='tight',
                 facecolor='white', edgecolor='none')
     plt.close()
 
-
 # ==============================================================================
-# 地図2: 知識の抽象度×応答レイテンシ スキャッタープロット生成
+# 図2: 層1 — 知識の構造化手法の比較（表現力 × 構築コスト）
 # ==============================================================================
-def generate_map2_chart(output_path):
+def generate_layer1_chart(output_path):
     techniques = [
-        ("OWLオントロジー",           1.0, 5.0, 'A'),
-        ("形式論理/\nルールエンジン",   1.2, 4.8, 'A'),
-        ("ガードレール/\nConstitutional", 4.5, 5.0, 'D'),
-        ("タクソノミー/\n統制語彙",     1.5, 4.2, 'A'),
-        ("スキーマ/\nデータモデル",     2.5, 4.0, 'A'),
-        ("セマンティック\nレイヤー",    4.0, 4.0, 'E'),
-        ("ファインチューニング\n/RLHF", 2.0, 3.5, 'D'),
-        ("ナレッジグラフ",             2.5, 3.2, 'A'),
-        ("Graph RAG",                 3.5, 3.2, 'E'),
-        ("構造化\nプロンプティング",    1.5, 3.0, 'B'),
-        ("Advanced RAG",              3.5, 2.8, 'B'),
-        ("エンベディング\n検索",        2.5, 2.2, 'B'),
-        ("Naive RAG",                 3.5, 2.0, 'B'),
-        ("ツール利用/MCP",            5.0, 2.0, 'C'),
-        ("平ドキュメント",             1.0, 2.0, 'B'),
-        ("メモリシステム",             2.5, 1.8, 'E'),
-        ("Feature Store",            4.0, 1.5, 'E'),
-        ("デジタルツイン",             5.0, 1.0, 'C'),
-        ("マルチモーダル",             4.0, 1.0, 'C'),
+        ("平ドキュメント\n(Markdown等)", 1.0, 1.0, 60),
+        ("タクソノミー/\n統制語彙", 2.0, 1.8, 80),
+        ("スキーマ/\nデータモデル", 2.5, 2.5, 90),
+        ("ナレッジグラフ", 3.5, 3.5, 110),
+        ("OWLオントロジー", 4.8, 4.5, 110),
     ]
 
-    fig, ax = plt.subplots(figsize=(11, 8))
+    fig, ax = plt.subplots(figsize=(10, 6.5))
 
-    # ゾーンの背景
-    # 設計時知識ゾーン
+    # 背景ゾーン
     from matplotlib.patches import FancyBboxPatch
-    rect1 = FancyBboxPatch((0.5, 3.5), 4.8, 2.0, boxstyle="round,pad=0.1",
-                           facecolor='#ebf8ff', edgecolor='#90cdf4',
-                           linewidth=1, alpha=0.5)
-    ax.add_patch(rect1)
-    ax.text(2.9, 5.3, '設計時知識ゾーン', fontsize=10, ha='center',
-            color='#2b6cb0', fontweight='bold', alpha=0.7)
-    ax.text(2.9, 5.05, '（月〜年単位で更新）', fontsize=7, ha='center',
-            color='#4299e1', alpha=0.6)
+    r1 = FancyBboxPatch((0.5, 0.5), 2.0, 2.0, boxstyle="round,pad=0.1",
+                        facecolor='#f0fff4', edgecolor='#9ae6b4',
+                        linewidth=1, alpha=0.4)
+    ax.add_patch(r1)
+    ax.text(1.5, 2.3, '軽量ゾーン', fontsize=9, ha='center',
+            color='#2f855a', fontweight='bold', alpha=0.6)
 
-    # 蓄積知識ゾーン
-    rect2 = FancyBboxPatch((0.5, 1.3), 2.3, 2.1, boxstyle="round,pad=0.1",
-                           facecolor='#f0fff4', edgecolor='#9ae6b4',
-                           linewidth=1, alpha=0.5)
-    ax.add_patch(rect2)
-    ax.text(1.65, 3.15, '蓄積知識ゾーン', fontsize=9, ha='center',
-            color='#2f855a', fontweight='bold', alpha=0.7)
+    r2 = FancyBboxPatch((2.7, 2.7), 2.8, 2.3, boxstyle="round,pad=0.1",
+                        facecolor='#ebf8ff', edgecolor='#90cdf4',
+                        linewidth=1, alpha=0.4)
+    ax.add_patch(r2)
+    ax.text(4.1, 4.8, '形式ゾーン', fontsize=9, ha='center',
+            color='#2b6cb0', fontweight='bold', alpha=0.6)
 
-    # 動的知識ゾーン
-    rect3 = FancyBboxPatch((3.0, 0.5), 2.3, 2.9, boxstyle="round,pad=0.1",
-                           facecolor='#fffff0', edgecolor='#fefcbf',
-                           linewidth=1, alpha=0.5)
-    ax.add_patch(rect3)
-    ax.text(4.15, 3.15, '動的知識ゾーン', fontsize=9, ha='center',
-            color='#b7791f', fontweight='bold', alpha=0.7)
-    ax.text(4.15, 2.9, '（秒〜分で更新）', fontsize=7, ha='center',
-            color='#d69e2e', alpha=0.6)
+    # 進化の矢印
+    coords = [(t[1], t[2]) for t in techniques]
+    for i in range(len(coords)-1):
+        ax.annotate('', xy=coords[i+1], xytext=coords[i],
+                    arrowprops=dict(arrowstyle='->', color='#a0aec0',
+                                   lw=1.5, alpha=0.5,
+                                   connectionstyle='arc3,rad=0.1'))
 
-    cat_labels = {
-        'A': '形式的知識表現',
-        'B': '検索・文書ベース',
-        'C': 'リアルタイム接続',
-        'D': '暗黙的・学習系',
-        'E': 'ハイブリッド・新興',
-    }
+    for name, x, y, size in techniques:
+        ax.scatter(x, y, c=L1_COLOR, s=size*1.5, zorder=5,
+                   edgecolors='white', linewidth=1.5, alpha=0.9)
+        ax.annotate(name, (x, y), fontsize=8.5, color='#2d3748',
+                    xytext=(x+0.15, y+0.15), fontweight='bold')
 
-    plotted_cats = set()
-    for name, x, y, cat in techniques:
-        color = CAT_COLORS[cat]
-        label = cat_labels[cat] if cat not in plotted_cats else None
-        plotted_cats.add(cat)
-        ax.scatter(x, y, c=color, s=120, zorder=5, edgecolors='white',
-                   linewidth=1.2, label=label, alpha=0.9)
-        offset_x, offset_y = 0.1, 0.13
-        if 'ガードレール' in name:
-            offset_x, offset_y = -0.6, 0.15
-        elif 'Naive' in name:
-            offset_y = -0.18
-        elif 'メモリ' in name:
-            offset_y = -0.15
-        ax.annotate(name, (x, y), fontsize=7, color='#2d3748',
-                    xytext=(x + offset_x, y + offset_y), fontweight='bold')
+    ax.text(3.0, 0.7, '共通原理: 現実世界の構造を機械可読な形式で記述する',
+            fontsize=10, ha='center', color='#2d3748',
+            fontweight='bold', style='italic',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='#f7fafc',
+                     edgecolor='#e2e8f0'))
 
-    ax.set_xlim(0.3, 5.8)
-    ax.set_ylim(0.3, 5.7)
-    ax.set_xlabel('応答レイテンシ / 知識の鮮度  →（リアルタイム）', fontsize=11, labelpad=10)
-    ax.set_ylabel('知識の抽象度  →（概念・スキーマ）', fontsize=11, labelpad=10)
-    ax.set_xticks([1, 2, 3, 4, 5])
-    ax.set_xticklabels(['事前準備型\n（静的）', 'バッチ\n更新', '中間', '準リアル\nタイム', 'リアル\nタイム'])
-    ax.set_yticks([1, 2, 3, 4, 5])
-    ax.set_yticklabels(['具体的\n(データ)', '', '中間', '', '抽象的\n(スキーマ)'])
-    ax.legend(loc='lower left', fontsize=8, framealpha=0.9, edgecolor='#e2e8f0')
+    ax.set_xlim(0.3, 5.5)
+    ax.set_ylim(0.3, 5.3)
+    ax.set_xlabel('知識の表現力（概念・関係・制約の記述能力）  →', fontsize=10, labelpad=8)
+    ax.set_ylabel('構築・維持の労力  →', fontsize=10, labelpad=8)
     ax.set_facecolor('#fafafa')
     ax.grid(True, alpha=0.15)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-
     plt.tight_layout()
     plt.savefig(output_path, dpi=200, bbox_inches='tight',
                 facecolor='white', edgecolor='none')
@@ -373,96 +249,149 @@ def generate_map2_chart(output_path):
 
 
 # ==============================================================================
-# 地図3: パイプラインカバレッジヒートマップ生成
+# 図3: 層2 — 知識の配送手法の比較（検索精度 × レイテンシ）
 # ==============================================================================
-def generate_map3_chart(output_path):
-    stages = ['ソース', '構造化', '格納\n索引化', '検索\n取得', 'コンテキスト\n注入', '生成\n推論', '出力\n制御', 'フィード\nバック']
-    techniques_data = [
-        ('OWLオントロジー',         [0, 1, 1, 0, 0, 0, 1, 0], 'A'),
-        ('ナレッジグラフ',          [0, 1, 1, 1, 0, 0, 0, 1], 'A'),
-        ('タクソノミー/統制語彙',    [0, 1, 0, 0, 0, 0, 0, 0], 'A'),
-        ('スキーマ/データモデル',    [0, 1, 0, 0, 0, 0, 1, 0], 'A'),
-        ('形式論理/ルールエンジン',  [0, 1, 0, 0, 0, 0, 1, 0], 'A'),
-        ('RAG各種',               [0, 0, 1, 1, 1, 0, 0, 0], 'B'),
-        ('平ドキュメント',          [1, 0, 0, 0, 1, 0, 0, 0], 'B'),
-        ('エンベディング検索',      [0, 0, 1, 1, 0, 0, 0, 0], 'B'),
-        ('構造化プロンプティング',   [0, 0, 0, 0, 1, 0, 0, 0], 'B'),
-        ('ツール利用/MCP',         [1, 0, 0, 0, 0, 1, 0, 0], 'C'),
-        ('デジタルツイン',          [1, 0, 0, 0, 0, 1, 0, 0], 'C'),
-        ('マルチモーダル',          [1, 0, 0, 0, 0, 1, 0, 0], 'C'),
-        ('ファインチューニング/RLHF', [0, 0, 0, 0, 0, 1, 0, 1], 'D'),
-        ('ガードレール/Constitutional', [0, 0, 0, 0, 0, 0, 1, 0], 'D'),
-        ('セマンティックレイヤー',   [0, 1, 1, 1, 0, 0, 0, 0], 'E'),
-        ('Feature Store',          [0, 0, 1, 0, 0, 0, 0, 1], 'E'),
-        ('メモリシステム',          [0, 0, 1, 0, 1, 0, 0, 1], 'E'),
+def generate_layer2_chart(output_path):
+    techniques = [
+        ("平ドキュメント注入", 1.0, 1.0, 60),
+        ("Naive RAG", 2.0, 2.5, 80),
+        ("エンベディング検索", 2.5, 2.0, 80),
+        ("Advanced RAG\n(ハイブリッド検索)", 3.5, 3.0, 100),
+        ("ツール利用/MCP", 4.5, 2.0, 100),
+        ("Graph RAG", 4.0, 4.5, 110),
+        ("メモリシステム\n(MemGPT等)", 3.0, 3.5, 90),
     ]
 
-    names = [t[0] for t in techniques_data]
-    data = np.array([t[1] for t in techniques_data])
-    cats = [t[2] for t in techniques_data]
+    fig, ax = plt.subplots(figsize=(10, 6.5))
 
-    fig, ax = plt.subplots(figsize=(12, 8))
+    # RAG進化の矢印
+    rag_indices = [0, 1, 3, 5]
+    rag_coords = [(techniques[i][1], techniques[i][2]) for i in rag_indices]
+    for i in range(len(rag_coords)-1):
+        ax.annotate('', xy=rag_coords[i+1], xytext=rag_coords[i],
+                    arrowprops=dict(arrowstyle='->', color='#718096',
+                                   lw=1.5, alpha=0.5,
+                                   connectionstyle='arc3,rad=0.15'))
 
-    # カスタムカラーマップ
-    from matplotlib.colors import ListedColormap
-    cmap = ListedColormap(['#f7fafc', '#3182ce'])
+    # ラベル
+    ax.text(2.5, 4.8, 'RAG進化の系譜', fontsize=9, ha='center',
+            color='#718096', fontweight='bold', alpha=0.6)
 
-    ax.imshow(data, cmap=cmap, aspect='auto', alpha=0.8)
+    for name, x, y, size in techniques:
+        is_rag = 'RAG' in name or 'Naive' in name or '平ドキュメント' in name
+        color = '#2b6cb0' if is_rag else '#d69e2e'
+        ax.scatter(x, y, c=color, s=size*1.5, zorder=5,
+                   edgecolors='white', linewidth=1.5, alpha=0.9)
+        ox, oy = 0.12, 0.15
+        if 'ツール' in name:
+            ox, oy = 0.15, -0.2
+        elif 'メモリ' in name:
+            ox, oy = 0.15, -0.25
+        ax.annotate(name, (x, y), fontsize=8, color='#2d3748',
+                    xytext=(x+ox, y+oy), fontweight='bold')
 
-    # セルのテキストとボーダー
-    for i in range(len(names)):
-        for j in range(len(stages)):
-            if data[i, j] == 1:
-                ax.text(j, i, '●', ha='center', va='center',
-                        fontsize=14, color='white', fontweight='bold')
-            # セルボーダー
-            rect = plt.Rectangle((j-0.5, i-0.5), 1, 1, fill=False,
-                                edgecolor='#e2e8f0', linewidth=0.5)
-            ax.add_patch(rect)
-
-    # カテゴリ色の帯（左端）
-    for i, cat in enumerate(cats):
-        rect = plt.Rectangle((-0.5, i-0.5), 0.15, 1, fill=True,
-                             facecolor=CAT_COLORS[cat], alpha=0.8)
-        ax.add_patch(rect)
-
-    ax.set_xticks(range(len(stages)))
-    ax.set_xticklabels(stages, fontsize=9, fontweight='bold')
-    ax.set_yticks(range(len(names)))
-    ax.set_yticklabels(names, fontsize=8.5)
-    ax.xaxis.tick_top()
-    ax.set_xlabel('')
-
-    # ステージ番号
-    for j, stage in enumerate(stages):
-        ax.text(j, -1.2, f'①②③④⑤⑥⑦⑧'[j], ha='center', va='center',
-                fontsize=10, color='#4a5568', fontweight='bold')
-
-    # パイプラインフロー矢印
-    for j in range(len(stages) - 1):
-        ax.annotate('', xy=(j+0.7, -1.2), xytext=(j+0.3, -1.2),
-                    arrowprops=dict(arrowstyle='->', color='#a0aec0', lw=1.5))
-
-    ax.set_xlim(-0.5, len(stages)-0.5)
-    ax.set_ylim(len(names)-0.5, -1.5)
+    ax.text(3.0, 0.6, '共通原理: 外部の知識をモデルのコンテキストに配送する',
+            fontsize=10, ha='center', color='#2d3748',
+            fontweight='bold', style='italic',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='#f7fafc',
+                     edgecolor='#e2e8f0'))
 
     # 凡例
-    cat_labels = {
-        'A': '形式的知識表現', 'B': '検索・文書ベース',
-        'C': 'リアルタイム接続', 'D': '暗黙的・学習系',
-        'E': 'ハイブリッド・新興'
-    }
-    legend_elements = []
-    for cat, label in cat_labels.items():
-        from matplotlib.patches import Patch
-        legend_elements.append(Patch(facecolor=CAT_COLORS[cat], label=label, alpha=0.8))
-    ax.legend(handles=legend_elements, loc='lower right', fontsize=8,
+    from matplotlib.patches import Patch
+    legend = [Patch(facecolor='#2b6cb0', label='テキスト検索系（RAGの系譜）'),
+              Patch(facecolor='#d69e2e', label='外部接続系（API/メモリ）')]
+    ax.legend(handles=legend, loc='upper left', fontsize=8,
               framealpha=0.9, edgecolor='#e2e8f0')
 
+    ax.set_xlim(0.3, 5.5)
+    ax.set_ylim(0.3, 5.3)
+    ax.set_xlabel('知識の鮮度・更新頻度  →（リアルタイム）', fontsize=10, labelpad=8)
+    ax.set_ylabel('検索精度・文脈理解度  →', fontsize=10, labelpad=8)
+    ax.set_facecolor('#fafafa')
+    ax.grid(True, alpha=0.15)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.spines['bottom'].set_visible(False)
-    ax.spines['left'].set_visible(False)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200, bbox_inches='tight',
+                facecolor='white', edgecolor='none')
+    plt.close()
+
+
+# ==============================================================================
+# 図4: 層間合成パターン図
+# ==============================================================================
+def generate_composition_chart(output_path):
+    fig, ax = plt.subplots(figsize=(12, 7))
+    ax.set_xlim(0, 12)
+    ax.set_ylim(0, 8)
+    ax.axis('off')
+
+    from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+
+    # パターン1: 基本構成
+    ax.text(2.0, 7.5, 'パターンA: 基本構成（PoC向け）', fontsize=11,
+            ha='center', fontweight='bold', color='#2d3748')
+    boxes_a = [
+        (0.5, 5.8, 3.0, 0.7, L2_COLOR, 'L2: 平ドキュメント注入'),
+        (0.5, 5.0, 3.0, 0.7, L3_COLOR, 'L3: 構造化プロンプティング'),
+    ]
+    for x, y, w, h, c, t in boxes_a:
+        r = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.05",
+                          facecolor=c, edgecolor='white', lw=1.5, alpha=0.8)
+        ax.add_patch(r)
+        ax.text(x+w/2, y+h/2, t, fontsize=8, ha='center', va='center',
+                color='white', fontweight='bold')
+
+    # パターン2: 標準構成
+    ax.text(6.0, 7.5, 'パターンB: 標準構成', fontsize=11,
+            ha='center', fontweight='bold', color='#2d3748')
+    boxes_b = [
+        (4.5, 6.4, 3.0, 0.6, L1_COLOR, 'L1: スキーマ定義'),
+        (4.5, 5.7, 3.0, 0.6, L2_COLOR, 'L2: Advanced RAG'),
+        (4.5, 5.0, 3.0, 0.6, L3_COLOR, 'L3: 構造化プロンプティング'),
+        (4.5, 4.3, 3.0, 0.6, L4_COLOR, 'L4: スキーマバリデーション'),
+    ]
+    for x, y, w, h, c, t in boxes_b:
+        r = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.05",
+                          facecolor=c, edgecolor='white', lw=1.5, alpha=0.8)
+        ax.add_patch(r)
+        ax.text(x+w/2, y+h/2, t, fontsize=8, ha='center', va='center',
+                color='white', fontweight='bold')
+
+    # パターン3: エンタープライズ構成
+    ax.text(10.0, 7.5, 'パターンC: エンタープライズ', fontsize=11,
+            ha='center', fontweight='bold', color='#2d3748')
+    boxes_c = [
+        (8.5, 6.4, 3.0, 0.6, L1_COLOR, 'L1: KG + オントロジー'),
+        (8.5, 5.7, 3.0, 0.6, L2_COLOR, 'L2: Graph RAG + MCP'),
+        (8.5, 5.0, 3.0, 0.6, L3_COLOR, 'L3: FT + プロンプト'),
+        (8.5, 4.3, 3.0, 0.6, L4_COLOR, 'L4: ガードレール + 監査'),
+    ]
+    for x, y, w, h, c, t in boxes_c:
+        r = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.05",
+                          facecolor=c, edgecolor='white', lw=1.5, alpha=0.8)
+        ax.add_patch(r)
+        ax.text(x+w/2, y+h/2, t, fontsize=8, ha='center', va='center',
+                color='white', fontweight='bold')
+
+    # 下半分: なぜ層を分けるのか
+    ax.text(6.0, 3.5, '層を分ける理由: 各層の手法は異なる問いに答えている', fontsize=12,
+            ha='center', fontweight='bold', color='#1a365d')
+
+    questions = [
+        (1.5, 2.5, L1_COLOR, '第1層', '知識をどう表現するか？\n→ 表現力と構築コストのトレードオフ'),
+        (4.5, 2.5, L2_COLOR, '第2層', '知識をどう届けるか？\n→ 鮮度と検索精度のトレードオフ'),
+        (7.5, 2.5, L3_COLOR, '第3層', '知識をどう入れるか？\n→ 柔軟性と永続性のトレードオフ'),
+        (10.5, 2.5, L4_COLOR, '第4層', '出力をどう守るか？\n→ 安全性と応答速度のトレードオフ'),
+    ]
+    for x, y, c, title, desc in questions:
+        r = FancyBboxPatch((x-1.2, y-1.0), 2.4, 2.0, boxstyle="round,pad=0.08",
+                          facecolor=c, edgecolor='white', lw=1.5, alpha=0.15)
+        ax.add_patch(r)
+        ax.text(x, y+0.6, title, fontsize=10, ha='center', va='center',
+                color=c, fontweight='bold')
+        ax.text(x, y-0.15, desc, fontsize=7.5, ha='center', va='center',
+                color='#4a5568')
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=200, bbox_inches='tight',
@@ -475,604 +404,640 @@ def generate_map3_chart(output_path):
 # ==============================================================================
 def build_pdf(output_path):
     s = make_styles()
-
     doc = SimpleDocTemplate(
         output_path, pagesize=A4,
         leftMargin=20*mm, rightMargin=20*mm,
         topMargin=20*mm, bottomMargin=22*mm,
-        title='AIグラウンディング手法マップ 解説資料',
-        author='Grounding Research Team'
-    )
+        title='AIグラウンディング手法 原理と層構造',
+        author='Grounding Research Team')
 
     story = []
-    W = A4[0] - 40*mm  # 有効幅
+    W = A4[0] - 40*mm
 
-    # ==== 表紙 ====
-    story.append(Spacer(1, 50*mm))
-
-    # 表紙背景テーブル
-    title_data = [[
-        Paragraph('AIグラウンディング手法マップ', s['title']),
-    ], [
-        Paragraph('— 解説資料 —', s['subtitle']),
-    ], [
-        Spacer(1, 8*mm),
-    ], [
-        Paragraph('現実世界の知識をAIに橋渡しする18手法の網羅的調査と可視化', s['subtitle']),
-    ]]
-    title_table = Table(title_data, colWidths=[W])
-    title_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), C_BG_HEADER),
-        ('TOPPADDING', (0, 0), (-1, -1), 8*mm),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8*mm),
-        ('LEFTPADDING', (0, 0), (-1, -1), 5*mm),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 5*mm),
-        ('ROUNDEDCORNERS', [3*mm, 3*mm, 3*mm, 3*mm]),
+    # ============ 表紙 ============
+    story.append(Spacer(1, 45*mm))
+    title_data = [
+        [Paragraph('AIグラウンディング手法の原理と層構造', s['title'])],
+        [Paragraph('— 何が比較可能で、何が合成すべきかを理解する —', s['subtitle'])],
+        [Spacer(1, 8*mm)],
+        [Paragraph('各手法の「なぜ効くのか」を原理から解説し、<br/>機能の異なる手法を4層モデルで整理する', s['subtitle'])],
+    ]
+    tt = Table(title_data, colWidths=[W])
+    tt.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), C_BG_HEADER),
+        ('TOPPADDING', (0,0), (-1,-1), 8*mm),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 8*mm),
+        ('LEFTPADDING', (0,0), (-1,-1), 5*mm),
+        ('RIGHTPADDING', (0,0), (-1,-1), 5*mm),
     ]))
-    story.append(title_table)
-
+    story.append(tt)
     story.append(Spacer(1, 15*mm))
-
-    # メタ情報
-    meta_style = ParagraphStyle(
-        'Meta', fontName='IPAPGothic', fontSize=10, leading=16,
-        textColor=C_TEXT_LIGHT, alignment=TA_CENTER
-    )
-    story.append(Paragraph('2026年3月', meta_style))
-    story.append(Spacer(1, 5*mm))
-    story.append(Paragraph('対象手法: 18手法（5群分類）', meta_style))
-    story.append(Paragraph('地図パターン: 3種', meta_style))
-
+    meta = ParagraphStyle('Meta', fontName='IPAPGothic', fontSize=10,
+                          leading=16, textColor=C_TEXT_LIGHT, alignment=TA_CENTER)
+    story.append(Paragraph('2026年3月', meta))
     story.append(PageBreak())
 
-    # ==== 目次 ====
+    # ============ 目次 ============
     story.append(Paragraph('目次', s['h1']))
-    story.append(Spacer(1, 3*mm))
-
-    toc_items = [
-        '1. グラウンディングとは何か',
-        '2. 手法の分類体系（5群18手法）',
-        '3. 地図1: 意味の明示度 × 運用結合度・ガバナンス性',
-        '4. 地図2: 知識の抽象度 × 応答レイテンシ',
-        '5. 地図3: データライフサイクル・パイプライン',
-        '6. 技術横断比較マトリクス',
-        '7. 手法選定ガイドと進化の方向性',
+    toc = [
+        '1. 旧版の問題: なぜガードレールとオントロジーを比較してはいけないのか',
+        '2. 4層モデル: グラウンディングの層構造',
+        '3. 第1層 — 知識の構造化（原理と手法比較）',
+        '4. 第2層 — 知識の配送（原理と手法比較）',
+        '5. 第3層 — モデルへの統合（原理と手法比較）',
+        '6. 第4層 — 出力の保証（原理と手法比較）',
+        '7. 層間合成パターン: 手法の組み合わせ方',
+        '8. 技術原理の類似性マトリクス',
     ]
-    for item in toc_items:
+    for item in toc:
         story.append(Paragraph(item, s['toc']))
     story.append(PageBreak())
 
-    # ==== 1. グラウンディングとは何か ====
-    story.append(Paragraph('1. グラウンディングとは何か', s['h1']))
+    # ============ 1. 問題提起 ============
+    story.append(Paragraph('1. 旧版の問題: なぜガードレールとオントロジーを比較してはいけないのか', s['h1']))
     story.append(Paragraph(
-        'AIグラウンディングとは、大規模言語モデル（LLM）の応答を現実世界の事実・知識・構造に'
-        '根拠付ける（ground）ための技術群の総称である。LLMは訓練データから学んだパターンに基づいて'
-        'テキストを生成するが、その知識には時間的なカットオフがあり、また事実と異なる情報を自信を持って'
-        '生成する「ハルシネーション」が発生し得る。', s['body']))
-    story.append(Paragraph(
-        'グラウンディング手法は、この問題に対処するために現実世界の知識をAIに橋渡しする役割を担う。'
-        '平ドキュメントのような最もシンプルなものから、オントロジーやデジタルツインのような高度に形式化'
-        'されたものまで、多様な手法が存在し、それぞれ異なるトレードオフを持つ。', s['body']))
-    story.append(Paragraph(
-        '本資料では、これらの手法を網羅的に調査・分類し、3種類の「地図」を用いて手法間の関係性と'
-        '特性の違いを可視化する。', s['body']))
+        '旧版の資料では、オントロジー、RAG、ガードレール、ファインチューニング等を'
+        '同じ座標系上にプロットし比較していた。しかしこれは根本的に問題がある。'
+        'これらは<b>同じ機能を果たす代替手段ではなく、異なる機能を担う補完的な層</b>だからだ。', s['body']))
 
-    # なぜ地図が必要か
-    story.append(Paragraph('なぜ地図が必要か', s['h2']))
-    why_data = [
-        ['課題', '地図が提供する解決'],
-        ['手法が多すぎて選べない', '2軸のマッピングで手法の位置づけを直感的に把握'],
-        ['技術原理の違いがわかりにくい', '形式性・結合度等の軸で技術的特性を比較可能'],
-        ['組み合わせ方がわからない', 'パイプライン図で各手法の守備範囲と相互補完性を可視化'],
-        ['進化の方向性が見えない', '地図上の進化矢印でトレンドと成熟度の進路を表現'],
+    prob_data = [
+        [Paragraph('<b>手法</b>', s['th']),
+         Paragraph('<b>やっていること</b>', s['th']),
+         Paragraph('<b>機能カテゴリ</b>', s['th'])],
+        [Paragraph('オントロジー', s['tc']),
+         Paragraph('ドメインの概念・関係を定義する', s['tc']),
+         Paragraph('知識の構造化', s['tc'])],
+        [Paragraph('RAG', s['tc']),
+         Paragraph('外部テキストを検索して注入する', s['tc']),
+         Paragraph('知識の配送', s['tc'])],
+        [Paragraph('ファインチューニング', s['tc']),
+         Paragraph('モデルの重みを更新する', s['tc']),
+         Paragraph('モデルへの統合', s['tc'])],
+        [Paragraph('ガードレール', s['tc']),
+         Paragraph('出力を検証・フィルタリングする', s['tc']),
+         Paragraph('出力の保証', s['tc'])],
     ]
-    why_table = Table(why_data, colWidths=[W*0.35, W*0.65])
-    why_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), C_BG_HEADER),
-        ('TEXTCOLOR', (0, 0), (-1, 0), white),
-        ('FONTNAME', (0, 0), (-1, 0), 'IPAGothic'),
-        ('FONTNAME', (0, 1), (-1, -1), 'IPAPGothic'),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
-        ('LEADING', (0, 0), (-1, -1), 14),
-        ('TOPPADDING', (0, 0), (-1, -1), 3*mm),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3*mm),
-        ('LEFTPADDING', (0, 0), (-1, -1), 3*mm),
-        ('GRID', (0, 0), (-1, -1), 0.5, C_BORDER),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [white, C_BG_LIGHT]),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    pt = Table(prob_data, colWidths=[W*0.22, W*0.43, W*0.35])
+    pt.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), C_BG_HEADER),
+        ('GRID', (0,0), (-1,-1), 0.5, C_BORDER),
+        ('TOPPADDING', (0,0), (-1,-1), 2*mm),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2*mm),
+        ('LEFTPADDING', (0,0), (-1,-1), 2*mm),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [white, C_BG_LIGHT]),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
     ]))
-    story.append(why_table)
+    story.append(pt)
 
-    story.append(PageBreak())
-
-    # ==== 2. 手法の分類体系 ====
-    story.append(Paragraph('2. 手法の分類体系（5群18手法）', s['h1']))
+    story.append(Spacer(1, 3*mm))
     story.append(Paragraph(
-        'グラウンディング手法を知識の形式化度とシステム結合方式に基づき5群に分類する。', s['body']))
+        'オントロジーとRAGを「どちらが優れているか」と比較することは、'
+        '建物の設計図と配送トラックを「どちらが優れているか」と比較するのと同じだ。'
+        '設計図（構造化）は建物の形を定義し、配送トラック（RAG）は建材を届ける。'
+        'それぞれ異なる問いに答えている。', s['body']))
+    story.append(Paragraph(
+        '<b>比較が意味を持つのは、同じ問いに対する異なる答えの間だけ</b>である。'
+        '例:「知識をどう構造化するか」という問いに対して、オントロジー vs ナレッジグラフ vs タクソノミーの比較は有意義だ。', s['body']))
 
-    # 分類表
-    cat_header = [
-        Paragraph('群', s['table_header']),
-        Paragraph('分類名', s['table_header']),
-        Paragraph('含まれる手法', s['table_header']),
-        Paragraph('特徴', s['table_header']),
+    # 比較可能/不可能の図解
+    comp_data = [
+        [Paragraph('<b>比較</b>', s['th']),
+         Paragraph('<b>意味があるか</b>', s['th']),
+         Paragraph('<b>理由</b>', s['th'])],
+        [Paragraph('オントロジー vs ナレッジグラフ', s['tc']),
+         Paragraph('意味がある', s['tcc']),
+         Paragraph('同じ問い「知識をどう構造化するか」への異なる答え', s['tc'])],
+        [Paragraph('Naive RAG vs Advanced RAG', s['tc']),
+         Paragraph('意味がある', s['tcc']),
+         Paragraph('同じ問い「知識をどう届けるか」への異なる答え', s['tc'])],
+        [Paragraph('ファインチューニング vs プロンプティング', s['tc']),
+         Paragraph('意味がある', s['tcc']),
+         Paragraph('同じ問い「知識をどうモデルに入れるか」への異なる答え', s['tc'])],
+        [Paragraph('オントロジー vs ガードレール', s['tc']),
+         Paragraph('意味がない', s['tcc']),
+         Paragraph('答えている問いが異なる（構造化 vs 出力制御）', s['tc'])],
+        [Paragraph('RAG vs ファインチューニング', s['tc']),
+         Paragraph('条件付き', s['tcc']),
+         Paragraph('「知識をモデルに入れる」意味では比較可能だが層が異なる', s['tc'])],
     ]
-    cat_data = [cat_header]
-    categories = [
-        ('A', '形式的\n知識表現',
-         'OWLオントロジー、ナレッジグラフ、\nタクソノミー/統制語彙、スキーマ/\nデータモデル、形式論理/ルールエンジン',
-         '意味を機械可読な形式\nで厳密に定義'),
-        ('B', '検索・\n文書ベース',
-         'RAG各種(Naive/Advanced/\nModular/Graph/Agentic)、\n平ドキュメント、エンベディング\n検索、構造化プロンプティング',
-         'テキスト・文書から動的\nに知識を検索・注入'),
-        ('C', 'リアルタイム\n接続',
-         'ツール利用/MCP、\nデジタルツイン、\nマルチモーダルグラウンディング',
-         '外部システム・物理世界\nとのリアルタイム接続'),
-        ('D', '暗黙的・\n学習系',
-         'ファインチューニング/RLHF、\nガードレール/Constitutional AI',
-         'モデルパラメータや\n行動ルールに知識を内包'),
-        ('E', 'ハイブリッド\n・新興',
-         'Graph RAG、セマンティック\nレイヤー、Feature Store、\nメモリシステム',
-         '複数手法の合成による\n新しいアプローチ'),
-    ]
-    for group, name, techs, feature in categories:
-        cat_data.append([
-            Paragraph(f'<b>{group}</b>', s['table_cell_center']),
-            Paragraph(name, s['table_cell']),
-            Paragraph(techs, s['table_cell']),
-            Paragraph(feature, s['table_cell']),
-        ])
-
-    cat_table = Table(cat_data, colWidths=[W*0.06, W*0.14, W*0.45, W*0.35])
-    cat_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), C_BG_HEADER),
-        ('TEXTCOLOR', (0, 0), (-1, 0), white),
-        ('GRID', (0, 0), (-1, -1), 0.5, C_BORDER),
-        ('TOPPADDING', (0, 0), (-1, -1), 2*mm),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2*mm),
-        ('LEFTPADDING', (0, 0), (-1, -1), 2*mm),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [white, C_BG_LIGHT]),
-        # カテゴリ色
-        ('BACKGROUND', (0, 1), (0, 1), HexColor(CAT_COLORS['A'])),
-        ('TEXTCOLOR', (0, 1), (0, 1), white),
-        ('BACKGROUND', (0, 2), (0, 2), HexColor(CAT_COLORS['B'])),
-        ('TEXTCOLOR', (0, 2), (0, 2), white),
-        ('BACKGROUND', (0, 3), (0, 3), HexColor(CAT_COLORS['C'])),
-        ('TEXTCOLOR', (0, 3), (0, 3), white),
-        ('BACKGROUND', (0, 4), (0, 4), HexColor(CAT_COLORS['D'])),
-        ('TEXTCOLOR', (0, 4), (0, 4), white),
-        ('BACKGROUND', (0, 5), (0, 5), HexColor(CAT_COLORS['E'])),
-        ('TEXTCOLOR', (0, 5), (0, 5), white),
+    ct = Table(comp_data, colWidths=[W*0.30, W*0.15, W*0.55])
+    ct.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), C_BG_HEADER),
+        ('GRID', (0,0), (-1,-1), 0.5, C_BORDER),
+        ('TOPPADDING', (0,0), (-1,-1), 2*mm),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2*mm),
+        ('LEFTPADDING', (0,0), (-1,-1), 2*mm),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [white, C_BG_LIGHT]),
+        ('BACKGROUND', (1,4), (1,4), HexColor('#FED7D7')),
+        ('BACKGROUND', (1,5), (1,5), HexColor('#FEFCBF')),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
     ]))
-    story.append(cat_table)
-
-    # 各手法の1行解説
-    story.append(Spacer(1, 4*mm))
-    story.append(Paragraph('各手法の概要', s['h2']))
-
-    technique_descs = [
-        ('OWLオントロジー', '記述論理に基づきドメインの概念・関係・制約を機械可読形式で厳密に定義。推論器による自動導出が可能'),
-        ('ナレッジグラフ', 'エンティティ（ノード）と関係（エッジ）のグラフ構造で知識を表現。マルチホップ推論と説明可能性を提供'),
-        ('タクソノミー/統制語彙', '階層的な「is-a」関係で概念を分類。用語の統制と検索精度向上に貢献'),
-        ('スキーマ/データモデル', 'JSON Schema等でデータの構造・型・制約を形式的に定義。AIの構造化出力を保証'),
-        ('形式論理/ルールエンジン', '述語論理やIF-THENルールで推論規則を宣言的に定義。監査可能な意思決定を実現'),
-        ('RAG各種', '外部知識ベースから動的に検索してコンテキストに注入。Naive→Advanced→Graph→Agenticと進化'),
-        ('平ドキュメント', 'Markdown/PDF等をそのままコンテキストに注入する最もシンプルな手法。CLAUDE.md等'),
-        ('エンベディング検索', 'テキストを密ベクトルに変換し、ベクトル空間上の近傍検索で意味的に類似した内容を取得'),
-        ('構造化プロンプティング', 'CoT、Few-shot等のプロンプト設計でLLMの推論を制御。インフラ不要で最も手軽'),
-        ('ツール利用/MCP', 'LLMがAPIを介して外部サービスにリアルタイムアクセス。MCPが業界標準として確立'),
-        ('デジタルツイン', '物理世界の動的な仮想レプリカ。物理法則に基づくAI予測の検証を可能にする'),
-        ('マルチモーダル', '視覚・音声・触覚等のテキスト以外のモダリティでAIの理解を物理世界に固定'),
-        ('ファインチューニング/RLHF', 'モデルパラメータに知識を焼き込む暗黙的グラウンディング。スタイル・トーンの制御に有効'),
-        ('ガードレール/Constitutional AI', 'AIの行動を安全かつ信頼できる範囲に制約。出力のリアルタイムフィルタリング'),
-        ('Graph RAG', 'RAG＋ナレッジグラフの統合。マルチホップ推論とハルシネーション削減を実現'),
-        ('セマンティックレイヤー', '技術データをビジネス用語に変換する抽象化層。AIとビジネスの橋渡し'),
-        ('Feature Store', 'ML特徴量の保存・管理・提供を一元化。RAG/LLMのグラウンディングレイヤーとしても機能'),
-        ('メモリシステム', 'LLMの固定コンテキストウィンドウを超えた持続的記憶。MemGPT/Letta等'),
-    ]
-
-    for name, desc in technique_descs:
-        story.append(Paragraph(
-            f'<b>{name}</b>: {desc}', s['body_small']))
+    story.append(ct)
 
     story.append(PageBreak())
 
-    # ==== 3. 地図1 ====
-    story.append(Paragraph('3. 地図1: 意味の明示度 × 運用結合度・ガバナンス性', s['h1']))
+    # ============ 2. 4層モデル ============
+    story.append(Paragraph('2. 4層モデル: グラウンディングの層構造', s['h1']))
     story.append(Paragraph(
-        '最も重要な地図。横軸に運用結合度・ガバナンス性（システムとの統合の深さ）、'
-        '縦軸に意味の明示度・形式性（知識がどれだけ厳密に形式化されているか）を配置し、'
-        '各手法の位置づけを4象限で分析する。', s['body']))
+        'グラウンディング手法を機能に基づき4つの層に整理する。各層は異なる問いに答えており、'
+        '同一層内の手法同士が比較対象、異なる層の手法同士が合成対象となる。', s['body']))
 
-    # チャート生成と挿入
-    map1_path = '/tmp/grounding_map1.png'
-    generate_map1_chart(map1_path)
-    story.append(Image(map1_path, width=W, height=W*0.72))
-    story.append(Paragraph('図1: 意味の明示度×運用結合度のスキャッタープロット（色はカテゴリを表す）', s['caption']))
+    layer_path = '/tmp/grounding_layers.png'
+    generate_layer_model(layer_path)
+    story.append(Image(layer_path, width=W, height=W*0.58))
+    story.append(Paragraph('図1: グラウンディングの4層モデル — 各層は異なる問いに答える', s['caption']))
 
-    story.append(PageBreak())
+    story.append(Spacer(1, 3*mm))
+    story.append(Paragraph('各層の定義', s['h2']))
 
-    # 4象限解説
-    story.append(Paragraph('4象限の解説', s['h2']))
-
-    quadrants = [
-        ('象限I: デジタル統治（右上）— 高形式性 × 高結合度',
-         C_Q1,
-         '意味が厳密に定義され、かつシステムに深く統合されている。最も制御されたグラウンディング。',
-         'デジタルツイン＋物理法則、ツール利用/MCP、Graph RAG、ガードレール/Constitutional AI',
-         'ミッションクリティカルなシステム（製造制御、金融取引）、リアルタイム意思決定支援、規制遵守が必須の領域',
-         '導入・維持コストが最も高い。柔軟性が低く、変更に伴うリスクが大きい。'),
-        ('象限II: 知識の宝庫（左上）— 高形式性 × 低結合度',
-         C_Q2,
-         '形式的に豊かな知識表現だが、特定のシステムに密結合していない。知識基盤として共有・再利用可能。',
-         'OWLオントロジー、形式論理/ルールエンジン、ナレッジグラフ',
-         'ドメイン知識のモデリング（医療、法律）、組織横断的な知識共有基盤、推論・整合性検証',
-         '構築に専門知識が必要。実運用への橋渡しが別途必要。'),
-        ('象限III: 軽量スタート（左下）— 低形式性 × 低結合度',
-         C_Q3,
-         '手軽に始められ、維持コストが最低。しかし形式性・ガバナンスが弱くスケール限界がある。',
-         '平ドキュメント、構造化プロンプティング、ファインチューニング/RLHF',
-         'プロトタイプ、PoC、小規模プロジェクト（CLAUDE.md等）、個人利用',
-         'スケールしない。品質の保証・監査が困難。'),
-        ('象限IV: ブラックボックス接続（右下）— 低形式性 × 高結合度',
-         C_Q4,
-         'システムに深く統合されているが、意味表現が暗黙的・不透明。',
-         'マルチモーダルグラウンディング、Feature Store（一部）',
-         'リアルタイムセンサーデータ処理、大規模MLパイプライン',
-         '説明可能性が低い。デバッグ・監査が困難。'),
+    layer_defs = [
+        ('第1層: 知識の構造化', L1_COLOR,
+         '「現実世界の知識を<b>どう表現する</b>か」に答える層。',
+         '知識を人間とAIの両方が理解できる構造に変換する。'
+         '表現力が高いほど推論が可能になるが、構築・維持のコストが上がる。',
+         'オントロジー、ナレッジグラフ、タクソノミー、スキーマ、平ドキュメント'),
+        ('第2層: 知識の配送', L2_COLOR,
+         '「構造化された知識を<b>どうモデルに届ける</b>か」に答える層。',
+         '第1層で構造化された知識（またはそのまま）を検索・取得し、'
+         'モデルが利用できる形で配送する。鮮度と精度のバランスが核心。',
+         'RAG各種、エンベディング検索、ツール利用/MCP、メモリシステム'),
+        ('第3層: モデルへの統合', L3_COLOR,
+         '「知識を<b>どうモデルの内部に統合する</b>か」に答える層。',
+         'コンテキスト注入（一時的）とパラメータ更新（永続的）の2系統がある。'
+         '柔軟性と永続性のトレードオフが核心。',
+         'ファインチューニング/RLHF、構造化プロンプティング、マルチモーダル入力'),
+        ('第4層: 出力の保証', L4_COLOR,
+         '「AIの出力を<b>どう制約・検証する</b>か」に答える層。',
+         'グラウンディングの最終防衛線。出力が事実・ルール・安全性基準に'
+         '適合しているかを検証する。これは知識の提供ではなく品質保証。',
+         'ガードレール/Constitutional AI、スキーマバリデーション、形式論理/ルールエンジン'),
     ]
-
-    for title, color, desc, techs, usecase, tradeoff in quadrants:
-        q_data = [
+    for title, color, question, desc, techs in layer_defs:
+        ld = [
             [Paragraph(f'<b>{title}</b>', ParagraphStyle(
-                'QH', fontName='IPAGothic', fontSize=10, leading=15,
-                textColor=white))],
-            [Paragraph(desc, ParagraphStyle(
-                'QD', fontName='IPAPGothic', fontSize=9, leading=14,
-                textColor=C_TEXT, spaceBefore=1*mm))],
-            [Paragraph(f'<b>主な手法:</b> {techs}', ParagraphStyle(
-                'QT', fontName='IPAPGothic', fontSize=8.5, leading=13,
-                textColor=C_TEXT))],
-            [Paragraph(f'<b>ユースケース:</b> {usecase}', ParagraphStyle(
-                'QU', fontName='IPAPGothic', fontSize=8.5, leading=13,
-                textColor=C_TEXT))],
-            [Paragraph(f'<b>トレードオフ:</b> {tradeoff}', ParagraphStyle(
-                'QR', fontName='IPAPGothic', fontSize=8.5, leading=13,
-                textColor=C_ACCENT))],
+                'LH', fontName='IPAGothic', fontSize=10.5, leading=15, textColor=white))],
+            [Paragraph(question, ParagraphStyle(
+                'LQ', fontName='IPAPGothic', fontSize=9.5, leading=15, textColor=C_TEXT))],
+            [Paragraph(desc, s['body_small'])],
+            [Paragraph(f'<b>手法:</b> {techs}', s['body_small'])],
         ]
-        q_table = Table(q_data, colWidths=[W])
-        q_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, 0), color),
-            ('BACKGROUND', (0, 1), (0, -1), C_BG_LIGHT),
-            ('TOPPADDING', (0, 0), (-1, -1), 2*mm),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 2*mm),
-            ('LEFTPADDING', (0, 0), (-1, -1), 3*mm),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 3*mm),
-            ('GRID', (0, 0), (-1, -1), 0.3, C_BORDER),
+        lt = Table(ld, colWidths=[W])
+        lt.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (0,0), HexColor(color)),
+            ('BACKGROUND', (0,1), (0,-1), C_BG_LIGHT),
+            ('TOPPADDING', (0,0), (-1,-1), 2*mm),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2*mm),
+            ('LEFTPADDING', (0,0), (-1,-1), 3*mm),
+            ('RIGHTPADDING', (0,0), (-1,-1), 3*mm),
+            ('GRID', (0,0), (-1,-1), 0.3, C_BORDER),
         ]))
-        story.append(KeepTogether([q_table, Spacer(1, 3*mm)]))
-
-    # 進化の方向性
-    story.append(Paragraph('進化の方向性', s['h2']))
-    evolutions = [
-        'Naive RAG → Advanced RAG → Graph RAG: 形式性と結合度の両方が段階的に上昇',
-        '平ドキュメント → RAG → エージェンティックAI: 左下から右上への対角移動',
-        'ナレッジグラフ + RAG = Graph RAG: 象限IIから象限Iへの水平移動',
-        'マルチモーダル + 形式論理 = Physical AI: 象限IVから象限Iへの垂直移動',
-    ]
-    for ev in evolutions:
-        story.append(Paragraph(f'• {ev}', s['bullet']))
+        story.append(KeepTogether([lt, Spacer(1, 2*mm)]))
 
     story.append(PageBreak())
 
-    # ==== 4. 地図2 ====
-    story.append(Paragraph('4. 地図2: 知識の抽象度 × 応答レイテンシ', s['h1']))
+    # ============ 3. 第1層 — 知識の構造化 ============
+    story.append(Paragraph('3. 第1層 — 知識の構造化: 原理と手法比較', s['h1']))
     story.append(Paragraph(
-        'AIがどの抽象レベルの知識を、どのタイミングで取得するかを可視化する地図。'
-        '横軸に応答レイテンシ/知識の鮮度（事前準備型〜リアルタイム）、'
-        '縦軸に知識の抽象度（具体的データ〜抽象的スキーマ）を配置する。', s['body']))
+        'この層の手法は「現実世界の構造を機械可読な形式で記述する」という共通原理を持つ。'
+        '違いは<b>表現力の深さ</b>にある。', s['body']))
 
-    map2_path = '/tmp/grounding_map2.png'
-    generate_map2_chart(map2_path)
-    story.append(Image(map2_path, width=W, height=W*0.72))
-    story.append(Paragraph('図2: 知識の抽象度×応答レイテンシのスキャッタープロット（3ゾーンで分類）', s['caption']))
+    # 各手法の原理
+    l1_techs = [
+        ('平ドキュメント（Markdown/PDF）',
+         '非構造化テキストをそのまま知識源として使う。',
+         '自然言語は人間にとって最も表現力が高い形式である。LLMは自然言語の理解に長けて'
+         'いるため、構造化せずともある程度の知識伝達が可能。',
+         '構造がないため、同じ文書でも解釈にブレが生じる。大規模になると検索精度が落ちる。'
+         'CLAUDE.md等のシステムプロンプトは実質このアプローチ。'),
+        ('タクソノミー / 統制語彙',
+         '概念を階層的な「is-a」関係で分類する。',
+         '人間の認知は分類（カテゴライゼーション）を基盤とする。'
+         'AIも語彙が統制されることで同義語・多義語の混乱がなくなり、'
+         '検索精度と推論の一貫性が向上する。',
+         '表現できるのは上下関係のみ。「AはBの一種」以外の関係（原因、構成要素等）は表現不可。'),
+        ('スキーマ / データモデル',
+         'JSON Schema、SQL DDL等でデータの構造・型・制約を定義する。',
+         'データの「形」を厳密に定義することで、AIの入出力を予測可能にする。'
+         '構造化出力（Structured Output）の基盤であり、'
+         'システム間の契約（API Contract）として機能する。',
+         '個々のデータの形は定義できるが、概念間の意味的関係は表現できない。'
+         '「顧客」と「注文」の関係はFK制約で表現するが、意味的豊かさはない。'),
+        ('ナレッジグラフ',
+         'エンティティ（ノード）と関係（エッジ）のグラフ構造で知識を表現する。',
+         'グラフ構造は多対多の関係を自然に表現でき、'
+         '「AがBの原因で、BがCを構成する」のようなマルチホップ推論が可能。'
+         'トリプル（主語-述語-目的語）の集積が知識の網を形成する。',
+         '任意の関係を定義できるが、関係の意味は暗黙的。'
+         '「AはBに関連する」の「関連」の厳密な意味は保証されない。'),
+        ('OWLオントロジー',
+         '記述論理（Description Logic）に基づき、概念・関係・公理を厳密に定義する。',
+         '形式論理に基づくため推論器（Reasoner）による自動導出が可能。'
+         '例:「哺乳類は脊椎動物である」「クジラは哺乳類である」→「クジラは脊椎動物である」'
+         'を自動推論。矛盾検出・分類の自動化も可能。',
+         '最も表現力が高いが、構築にOWL/RDFの専門知識が必須。'
+         'ドメインエキスパートとオントロジストの協業が必要で、コストが最大。'),
+    ]
+
+    for name, what, why, tradeoff in l1_techs:
+        td = [
+            [Paragraph(f'<b>{name}</b>', ParagraphStyle(
+                'TN', fontName='IPAGothic', fontSize=9.5, leading=14, textColor=white))],
+            [Paragraph(f'<b>何をするか:</b> {what}', s['body_small'])],
+            [Paragraph(f'<b>なぜ効くのか（原理）:</b> {why}', s['body_small'])],
+            [Paragraph(f'<b>限界・トレードオフ:</b> {tradeoff}', s['body_small'])],
+        ]
+        tt = Table(td, colWidths=[W])
+        tt.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (0,0), HexColor(L1_COLOR)),
+            ('BACKGROUND', (0,1), (0,-1), C_BG_LIGHT),
+            ('TOPPADDING', (0,0), (-1,-1), 1.5*mm),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 1.5*mm),
+            ('LEFTPADDING', (0,0), (-1,-1), 2.5*mm),
+            ('RIGHTPADDING', (0,0), (-1,-1), 2.5*mm),
+            ('GRID', (0,0), (-1,-1), 0.3, C_BORDER),
+        ]))
+        story.append(KeepTogether([tt, Spacer(1, 1.5*mm)]))
+
+    story.append(Spacer(1, 2*mm))
+    l1_path = '/tmp/grounding_l1.png'
+    generate_layer1_chart(l1_path)
+    story.append(Image(l1_path, width=W*0.9, height=W*0.58))
+    story.append(Paragraph('図2: 第1層の手法比較 — 表現力と構築コストのトレードオフ（矢印は進化方向）', s['caption']))
+
+    story.append(Paragraph(
+        '<b>類似性の核心:</b> すべて「現実をモデル化する」が、モデルの精密さが異なる。'
+        '平ドキュメントは自然言語という曖昧な表現、タクソノミーは階層のみ、スキーマは型と制約、'
+        'ナレッジグラフは関係のネットワーク、オントロジーは論理的公理。'
+        '表現力の階段を登るほど機械推論が可能になるが、人間の負荷も上がる。', s['body']))
+
+    story.append(PageBreak())
+
+    # ============ 4. 第2層 — 知識の配送 ============
+    story.append(Paragraph('4. 第2層 — 知識の配送: 原理と手法比較', s['h1']))
+    story.append(Paragraph(
+        'この層の手法は「外部の知識をモデルのコンテキストに配送する」という共通原理を持つ。'
+        '違いは<b>配送のメカニズム</b>にある。', s['body']))
+
+    l2_techs = [
+        ('Naive RAG',
+         'クエリで文書を検索し、上位結果をそのままプロンプトに追加する。',
+         '「最も関連性の高い情報を見つけてモデルに渡す」という最もシンプルな実装。'
+         'ベクトル類似度がクエリと文書の意味的近さの近似として機能する。',
+         'チャンク分割の品質に依存。文脈の喪失、無関係な情報の混入が頻発。'),
+        ('Advanced RAG（ハイブリッド検索）',
+         'クエリ変換、リランキング、ハイブリッド検索（密+疎）を組み合わせる。',
+         'Naive RAGの各ステップを個別に最適化する。'
+         'クエリ拡張で意図を明確化し、リランカーで精度を向上、'
+         'ハイブリッド検索でキーワード一致と意味検索を両立する。',
+         'パイプラインが複雑化し、レイテンシが増大。各ステップのチューニングが必要。'),
+        ('Graph RAG',
+         'ナレッジグラフの構造を利用して、関連エンティティを辿りながら情報を収集する。',
+         'グラフ走査により「AがBに影響し、BがCを引き起こす」のような'
+         '多段階の推論チェーンを構築できる。テキスト検索では見つからない'
+         '構造的な関連性を発見する。',
+         '第1層のナレッジグラフ構築が前提。グラフの品質が直接精度に影響。'),
+        ('エンベディング検索（ベクトル検索）',
+         'テキストを密ベクトルに変換し、ベクトル空間上の近傍検索で類似内容を取得する。',
+         '意味的に類似したテキストはベクトル空間上で近い位置に配置される'
+         '（分布仮説）。これにより、キーワードが一致しなくても'
+         '意味的に関連する情報を発見できる。',
+         '「意味が近い」と「回答に役立つ」は必ずしも一致しない。'),
+        ('ツール利用 / MCP',
+         'LLMがAPI呼び出しを介して外部システムにリアルタイムアクセスする。',
+         'モデルは「どのツールを、どの引数で呼ぶか」を判断し、'
+         '結果をコンテキストに統合する。MCPにより接続の標準化が実現。'
+         '検索ではなく実行（API呼び出し、計算、データ取得）が本質。',
+         'ツールの信頼性に依存。API呼び出しのレイテンシとコスト。安全性の確保が課題。'),
+        ('メモリシステム（MemGPT/Letta等）',
+         'LLMの固定コンテキストウィンドウを超えた持続的記憶を提供する。',
+         'OSの仮想メモリに着想を得た設計。'
+         'メインメモリ（コンテキストウィンドウ）とアーカイブ（外部ストレージ）を'
+         'LLM自身が管理し、必要な記憶をページイン/アウトする。',
+         '何を記憶し何を忘れるかの判断をLLMに委ねるリスク。実装の複雑さ。'),
+    ]
+
+    for name, what, why, tradeoff in l2_techs:
+        td = [
+            [Paragraph(f'<b>{name}</b>', ParagraphStyle(
+                'TN2', fontName='IPAGothic', fontSize=9.5, leading=14, textColor=white))],
+            [Paragraph(f'<b>何をするか:</b> {what}', s['body_small'])],
+            [Paragraph(f'<b>なぜ効くのか（原理）:</b> {why}', s['body_small'])],
+            [Paragraph(f'<b>限界・トレードオフ:</b> {tradeoff}', s['body_small'])],
+        ]
+        tt = Table(td, colWidths=[W])
+        tt.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (0,0), HexColor(L2_COLOR)),
+            ('BACKGROUND', (0,1), (0,-1), C_BG_LIGHT),
+            ('TOPPADDING', (0,0), (-1,-1), 1.5*mm),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 1.5*mm),
+            ('LEFTPADDING', (0,0), (-1,-1), 2.5*mm),
+            ('RIGHTPADDING', (0,0), (-1,-1), 2.5*mm),
+            ('GRID', (0,0), (-1,-1), 0.3, C_BORDER),
+        ]))
+        story.append(KeepTogether([tt, Spacer(1, 1.5*mm)]))
+
+    story.append(Spacer(1, 2*mm))
+    l2_path = '/tmp/grounding_l2.png'
+    generate_layer2_chart(l2_path)
+    story.append(Image(l2_path, width=W*0.9, height=W*0.58))
+    story.append(Paragraph('図3: 第2層の手法比較 — 鮮度×精度（矢印はRAG進化の系譜）', s['caption']))
+
+    story.append(Paragraph(
+        '<b>類似性の核心:</b> すべて「外部知識をモデルに届ける」が、配送メカニズムが異なる。'
+        'RAG系は「事前に蓄えた文書を検索」、ツール利用は「リアルタイムにAPIを呼ぶ」、'
+        'メモリは「過去の対話を呼び戻す」。検索 vs 実行 vs 記憶想起という3つのアプローチ。', s['body']))
+
+    story.append(PageBreak())
+
+    # ============ 5. 第3層 — モデルへの統合 ============
+    story.append(Paragraph('5. 第3層 — モデルへの統合: 原理と手法比較', s['h1']))
+    story.append(Paragraph(
+        'この層の手法は「知識をモデルの内部に統合する」という共通原理を持つ。'
+        '核心的な違いは<b>一時的（コンテキスト注入）か永続的（パラメータ更新）か</b>にある。', s['body']))
+
+    l3_techs = [
+        ('構造化プロンプティング（CoT、Few-shot等）',
+         'プロンプト設計により、モデルの推論パターンを誘導する。',
+         'LLMはin-context learningの能力を持つ。'
+         '適切な例示（Few-shot）や推論ステップの明示（Chain-of-Thought）により、'
+         'パラメータを変更せずにモデルの振る舞いを変えられる。'
+         '知識というよりも「考え方の型」を注入する。',
+         '一時的。コンテキストウィンドウの消費。プロンプトの品質に強く依存。'
+         'モデルが変わると再設計が必要。'),
+        ('ファインチューニング / RLHF',
+         'ドメイン固有のデータでモデルのパラメータ（重み）を更新する。',
+         '勾配降下法によりモデルの内部表現を変更し、'
+         '特定タスク・ドメインへの適応を実現する。'
+         'RLHFは人間のフィードバックを報酬関数に変換し、'
+         'モデルの行動選好を調整する。知識がパラメータに「焼き込まれる」。',
+         '永続的だが更新が困難（再訓練が必要）。大量の学習データと計算資源が必要。'
+         '新しい知識との矛盾（catastrophic forgetting）。事実の埋め込みよりも'
+         'スタイル・トーン・行動パターンの制御に向く。'),
+        ('マルチモーダル入力',
+         '画像・音声・動画等の非テキストデータをモデルに入力する。',
+         '人間の認知は多感覚統合で成り立つ。'
+         'テキストだけでは伝えにくい空間的・視覚的情報を直接入力することで、'
+         'モデルの理解を物理世界に固定する。設計図、写真、グラフなどが典型。',
+         '一時的（コンテキストウィンドウ内）。モダリティ間の解釈ギャップ。'
+         'テキストより大きなトークン消費。'),
+    ]
+
+    for name, what, why, tradeoff in l3_techs:
+        td = [
+            [Paragraph(f'<b>{name}</b>', ParagraphStyle(
+                'TN3', fontName='IPAGothic', fontSize=9.5, leading=14, textColor=white))],
+            [Paragraph(f'<b>何をするか:</b> {what}', s['body_small'])],
+            [Paragraph(f'<b>なぜ効くのか（原理）:</b> {why}', s['body_small'])],
+            [Paragraph(f'<b>限界・トレードオフ:</b> {tradeoff}', s['body_small'])],
+        ]
+        tt = Table(td, colWidths=[W])
+        tt.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (0,0), HexColor(L3_COLOR)),
+            ('BACKGROUND', (0,1), (0,-1), C_BG_LIGHT),
+            ('TOPPADDING', (0,0), (-1,-1), 1.5*mm),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 1.5*mm),
+            ('LEFTPADDING', (0,0), (-1,-1), 2.5*mm),
+            ('RIGHTPADDING', (0,0), (-1,-1), 2.5*mm),
+            ('GRID', (0,0), (-1,-1), 0.3, C_BORDER),
+        ]))
+        story.append(KeepTogether([tt, Spacer(1, 1.5*mm)]))
 
     story.append(Spacer(1, 3*mm))
 
-    # 3ゾーン解説
-    story.append(Paragraph('3つのゾーン', s['h2']))
-
-    zones = [
-        ('設計時知識ゾーン（上部）', '#ebf8ff', '#2b6cb0',
-         'AIの「世界モデル」を事前に定義する手法群。変更頻度は低い（月〜年単位）。'
-         'オントロジー、形式論理、タクソノミー、スキーマ、ファインチューニングが該当。'
-         '安定した概念的基盤を提供するが、更新が困難。'),
-        ('蓄積知識ゾーン（左下）', '#f0fff4', '#2f855a',
-         'バッチ処理で蓄積される知識。ナレッジグラフ、エンベディングインデックス、'
-         'メモリシステム、平ドキュメントが該当。中程度の更新頻度。'),
-        ('動的知識ゾーン（右下）', '#fffff0', '#b7791f',
-         'リアルタイムで取得される具体的な知識。RAG各種、ツール利用/MCP、Feature Store、'
-         'マルチモーダル、デジタルツインが該当。秒〜分単位で変化する最新データ。'),
+    # 一時的 vs 永続的の比較表
+    story.append(Paragraph('統合方式の比較: 一時的 vs 永続的', s['h2']))
+    int_data = [
+        [Paragraph('<b>観点</b>', s['th']),
+         Paragraph('<b>一時的統合<br/>(プロンプト/コンテキスト)</b>', s['th']),
+         Paragraph('<b>永続的統合<br/>(ファインチューニング)</b>', s['th'])],
+        [Paragraph('原理', s['tc']),
+         Paragraph('in-context learningで推論時に知識を提供', s['tc']),
+         Paragraph('勾配降下法でパラメータに知識を焼き込む', s['tc'])],
+        [Paragraph('永続性', s['tc']),
+         Paragraph('セッション終了で消失', s['tc']),
+         Paragraph('モデルに永続的に残る', s['tc'])],
+        [Paragraph('更新容易性', s['tc']),
+         Paragraph('プロンプト編集で即反映', s['tc']),
+         Paragraph('再訓練が必要（時間・コスト大）', s['tc'])],
+        [Paragraph('適する知識', s['tc']),
+         Paragraph('頻繁に変化する事実・最新情報', s['tc']),
+         Paragraph('安定したスタイル・行動パターン', s['tc'])],
+        [Paragraph('リスク', s['tc']),
+         Paragraph('コンテキストウィンドウの圧迫', s['tc']),
+         Paragraph('catastrophic forgetting', s['tc'])],
     ]
-    for ztitle, bg_hex, color_hex, zdesc in zones:
-        z_data = [[Paragraph(f'<b>{ztitle}</b>', ParagraphStyle(
-            'ZH', fontName='IPAGothic', fontSize=10, leading=14,
-            textColor=HexColor(color_hex)))],
-            [Paragraph(zdesc, s['body_small'])]]
-        z_table = Table(z_data, colWidths=[W])
-        z_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), HexColor(bg_hex)),
-            ('TOPPADDING', (0, 0), (-1, -1), 2*mm),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 2*mm),
-            ('LEFTPADDING', (0, 0), (-1, -1), 3*mm),
-            ('BOX', (0, 0), (-1, -1), 0.5, HexColor(color_hex)),
-        ]))
-        story.append(KeepTogether([z_table, Spacer(1, 2*mm)]))
+    it = Table(int_data, colWidths=[W*0.18, W*0.41, W*0.41])
+    it.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), C_BG_HEADER),
+        ('GRID', (0,0), (-1,-1), 0.5, C_BORDER),
+        ('TOPPADDING', (0,0), (-1,-1), 2*mm),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2*mm),
+        ('LEFTPADDING', (0,0), (-1,-1), 2*mm),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [white, C_BG_LIGHT]),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(it)
 
-    # 主要な読み取り
-    story.append(Paragraph('主要な読み取りポイント', s['h2']))
-    readings = [
-        '<b>二層構造の必然性</b>: 効果的なAIシステムは設計時知識（枠組み）と実行時知識（具体的事実）の両方を組み合わせる',
-        '<b>抽象度と鮮度のトレードオフ</b>: 左上（高抽象・低鮮度）と右下（低抽象・高鮮度）の対角線の両端を結ぶのが最適',
-        '<b>ガードレールの特異性</b>: 設計時に定義された抽象原則を実行時にリアルタイム適用する唯一の手法',
-        '<b>知識の「重力」</b>: 上方が「骨格」、下方が「肉付け」。骨格なき肉付けはハルシネーション、肉付けなき骨格は空虚',
-    ]
-    for r in readings:
-        story.append(Paragraph(f'• {r}', s['bullet']))
+    story.append(Paragraph(
+        '<b>類似性の核心:</b> すべて「モデルに知識を持たせる」が、'
+        '保持期間と更新方法が根本的に異なる。多くの実用システムでは'
+        'ファインチューニングでスタイルを、プロンプティングで事実を、'
+        'マルチモーダルで視覚情報を統合する多層利用が最適解となる。', s['body']))
 
     story.append(PageBreak())
 
-    # ==== 5. 地図3 ====
-    story.append(Paragraph('5. 地図3: データライフサイクル・パイプライン', s['h1']))
+    # ============ 6. 第4層 — 出力の保証 ============
+    story.append(Paragraph('6. 第4層 — 出力の保証: 原理と手法比較', s['h1']))
     story.append(Paragraph(
-        '現実世界の知識がAIに到達するまでの8段階パイプラインと、各手法のカバー範囲を'
-        'ヒートマップで可視化する。', s['body']))
+        'この層は他の3層とは本質的に異なる。他の層が<b>知識をモデルに入れる</b>のに対し、'
+        'この層は<b>モデルの出力を検証・制約する</b>。グラウンディングの「最終防衛線」。', s['body']))
 
-    # パイプライン説明
-    pipeline_stages = [
-        ('①ソース', '物理現象・業務文書・API等の知識源'),
-        ('②構造化', '概念定義・関係定義・型定義・ルール定義'),
-        ('③格納・索引化', 'ベクトルDB・グラフDB・特徴量ストアへの永続化'),
-        ('④検索・取得', 'クエリに応じた知識の検索とフィルタリング'),
-        ('⑤コンテキスト注入', 'プロンプト組み立て・コンテキストエンジニアリング'),
-        ('⑥生成・推論', 'LLM推論・ツール呼び出し・知識結合'),
-        ('⑦出力制御', 'バリデーション・ガードレール・構造化出力'),
-        ('⑧フィードバック', 'メモリ蓄積・モデル再訓練・品質改善'),
+    l4_techs = [
+        ('ガードレール / Constitutional AI',
+         'AIの出力をルールやポリシーに基づきリアルタイムでフィルタリング・修正する。',
+         'LLMの出力は確率的であり、常に正確とは限らない。'
+         '事後的にルールベースの検証を行うことで、ハルシネーション、有害表現、'
+         'ポリシー違反を検出・阻止する。'
+         'Constitutional AIは「自分で自分を批判・修正する」メタ認知的アプローチ。',
+         '検出はできるが修正は限定的。ルールの網羅性に依存。'
+         'レイテンシの増加。正当な出力を誤ってブロックするリスク（偽陽性）。'),
+        ('スキーマバリデーション（構造化出力）',
+         'AIの出力をJSON Schema等の型定義に適合させる。',
+         '出力の「形」を制約することで、下流システムとの統合を保証する。'
+         'Structured Outputにより、APIレスポンスとして確実にパース可能な'
+         '形式を強制する。',
+         '構造の正しさは保証するが、内容の正しさは保証しない。'
+         '「正しいJSON形式だが事実と異なる」出力は防げない。'),
+        ('形式論理 / ルールエンジン（出力検証として）',
+         'AIの出力を述語論理やIF-THENルールで検証する。',
+         '形式論理に基づく検証は、矛盾の検出と整合性の保証が可能。'
+         '例:「年齢がマイナス」「開始日が終了日より後」等の論理矛盾を'
+         '自動検出する。ドメイン固有の業務ルールの強制にも使える。',
+         'ルールの定義・維持に専門知識が必要。'
+         '定量的な判断（「正確な数値か」）は可能だが、'
+         '定性的な判断（「適切な表現か」）は困難。'),
     ]
-    pipe_data = [[Paragraph('<b>ステージ</b>', s['table_header']),
-                   Paragraph('<b>処理内容</b>', s['table_header'])]]
-    for stage, desc in pipeline_stages:
-        pipe_data.append([
-            Paragraph(stage, s['table_cell']),
-            Paragraph(desc, s['table_cell']),
-        ])
-    pipe_table = Table(pipe_data, colWidths=[W*0.2, W*0.8])
-    pipe_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), C_BG_HEADER),
-        ('GRID', (0, 0), (-1, -1), 0.5, C_BORDER),
-        ('TOPPADDING', (0, 0), (-1, -1), 1.5*mm),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5*mm),
-        ('LEFTPADDING', (0, 0), (-1, -1), 2*mm),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [white, C_BG_LIGHT]),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-    ]))
-    story.append(pipe_table)
+
+    for name, what, why, tradeoff in l4_techs:
+        td = [
+            [Paragraph(f'<b>{name}</b>', ParagraphStyle(
+                'TN4', fontName='IPAGothic', fontSize=9.5, leading=14, textColor=white))],
+            [Paragraph(f'<b>何をするか:</b> {what}', s['body_small'])],
+            [Paragraph(f'<b>なぜ効くのか（原理）:</b> {why}', s['body_small'])],
+            [Paragraph(f'<b>限界・トレードオフ:</b> {tradeoff}', s['body_small'])],
+        ]
+        tt = Table(td, colWidths=[W])
+        tt.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (0,0), HexColor(L4_COLOR)),
+            ('BACKGROUND', (0,1), (0,-1), C_BG_LIGHT),
+            ('TOPPADDING', (0,0), (-1,-1), 1.5*mm),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 1.5*mm),
+            ('LEFTPADDING', (0,0), (-1,-1), 2.5*mm),
+            ('RIGHTPADDING', (0,0), (-1,-1), 2.5*mm),
+            ('GRID', (0,0), (-1,-1), 0.3, C_BORDER),
+        ]))
+        story.append(KeepTogether([tt, Spacer(1, 1.5*mm)]))
+
+    story.append(Spacer(1, 3*mm))
+    story.append(Paragraph(
+        '<b>なぜ「グラウンディング」に含めるのか:</b> '
+        'ガードレール等は知識の提供ではないが、「AIの出力を現実に根拠づける」'
+        'という広義のグラウンディングの最終段階を担う。'
+        '知識を入れるだけでは不十分で、出力が知識と整合しているかの検証が不可欠。'
+        'ただし、<b>他の層の手法と同列に比較するのは誤り</b>であり、'
+        '補完的な役割として理解すべきである。', s['body']))
+
+    story.append(PageBreak())
+
+    # ============ 7. 層間合成パターン ============
+    story.append(Paragraph('7. 層間合成パターン: 手法の組み合わせ方', s['h1']))
+    story.append(Paragraph(
+        '実用的なグラウンディングは複数の層の手法を合成して構築する。'
+        '以下に典型的な合成パターンを示す。', s['body']))
+
+    comp_path = '/tmp/grounding_comp.png'
+    generate_composition_chart(comp_path)
+    story.append(Image(comp_path, width=W, height=W*0.58))
+    story.append(Paragraph('図4: 層間合成パターン — 用途に応じた手法の積み方', s['caption']))
+
+    # パターン詳細
+    patterns = [
+        ('パターンA: 基本構成（PoC・個人利用）',
+         'L2: 平ドキュメント注入 → L3: 構造化プロンプティング',
+         'CLAUDE.mdにドメイン知識を書き、プロンプトで推論を誘導する最小構成。'
+         'インフラ不要で即日開始可能。小規模では十分だがスケールしない。'),
+        ('パターンB: 標準構成（プロダクト）',
+         'L1: スキーマ定義 → L2: Advanced RAG → L3: プロンプティング → L4: スキーマ検証',
+         'ドキュメントをチャンク化・検索し、構造化出力で応答する標準的なRAGアプリ。'
+         'スキーマが入出力の「契約」として機能し、第1層と第4層で品質を挟み込む。'),
+        ('パターンC: エンタープライズ構成',
+         'L1: KG+オントロジー → L2: Graph RAG+MCP → L3: FT+プロンプト → L4: ガードレール+監査',
+         '4層すべてを実装した最も堅牢な構成。金融・医療・法律等の'
+         'ミッションクリティカルな領域で必要。導入・維持のコストは最大。'),
+        ('パターンD: リアルタイム構成（IoT/Physical AI）',
+         'L1: デジタルツイン → L2: MCP+センサー → L3: マルチモーダル → L4: 物理法則検証',
+         '物理世界のリアルタイムデータに基づきAIが判断する構成。'
+         '製造制御、自動運転、ロボティクス等に適用。'),
+    ]
+
+    for ptitle, stack, pdesc in patterns:
+        pd = [
+            [Paragraph(f'<b>{ptitle}</b>', ParagraphStyle(
+                'PN', fontName='IPAGothic', fontSize=10, leading=14, textColor=C_PRIMARY))],
+            [Paragraph(f'<b>構成:</b> {stack}', s['body_small'])],
+            [Paragraph(pdesc, s['body_small'])],
+        ]
+        ptab = Table(pd, colWidths=[W])
+        ptab.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), C_BG_LIGHT),
+            ('TOPPADDING', (0,0), (-1,-1), 2*mm),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2*mm),
+            ('LEFTPADDING', (0,0), (-1,-1), 3*mm),
+            ('BOX', (0,0), (-1,-1), 0.5, C_BORDER),
+        ]))
+        story.append(KeepTogether([ptab, Spacer(1, 2*mm)]))
+
+    story.append(PageBreak())
+
+    # ============ 8. 技術原理の類似性マトリクス ============
+    story.append(Paragraph('8. 技術原理の類似性マトリクス', s['h1']))
+    story.append(Paragraph(
+        '各手法の原理を5つの観点で整理し、どの手法が「似ている」のかを明確にする。'
+        '同じ層内の手法は似ており、異なる層の手法は補完的であることが読み取れる。', s['body']))
+
+    sim_data = [
+        [Paragraph('<b>手法</b>', s['th']),
+         Paragraph('<b>層</b>', s['th']),
+         Paragraph('<b>核心原理</b>', s['th']),
+         Paragraph('<b>入力</b>', s['th']),
+         Paragraph('<b>出力</b>', s['th']),
+         Paragraph('<b>持続性</b>', s['th'])],
+    ]
+    sim_rows = [
+        ('オントロジー',     '1', '論理的公理で概念を定義',   'ドメイン知識', '形式的定義', '永続'),
+        ('ナレッジグラフ',   '1', 'トリプルで関係を記述',     'エンティティ', 'グラフ構造', '永続'),
+        ('タクソノミー',     '1', '階層分類で概念を整理',     '用語・概念',  '階層木',    '永続'),
+        ('スキーマ',        '1', '型と制約でデータの形を定義', 'データ構造',  '型定義',    '永続'),
+        ('Naive RAG',      '2', 'ベクトル類似度で検索',     'クエリ',     '関連テキスト', '一時'),
+        ('Advanced RAG',   '2', '多段パイプラインで精度向上', 'クエリ',     '精選テキスト', '一時'),
+        ('Graph RAG',      '2', 'グラフ走査で関連を辿る',   'クエリ+グラフ','推論チェーン', '一時'),
+        ('ツール利用/MCP',  '2', 'API呼び出しでデータ取得',  'ツール定義',  'API応答',    '一時'),
+        ('メモリシステム',   '2', '仮想メモリで記憶を管理',   '対話履歴',   '想起された記憶','半永続'),
+        ('プロンプティング', '3', 'in-context learningを活用','テンプレート','推論誘導',    '一時'),
+        ('ファインチューニング','3','勾配降下法で重みを更新',  '学習データ', 'パラメータ変更', '永続'),
+        ('マルチモーダル',   '3', '多感覚統合で理解を補強',   '画像/音声等','統合表現',     '一時'),
+        ('ガードレール',    '4', 'ルールベースの事後検証',    'AI出力',    '検証済み出力',  '永続ルール'),
+        ('スキーマ検証',    '4', '型適合の強制',           'AI出力',    '構造化出力',   '永続定義'),
+        ('ルールエンジン',  '4', '述語論理で矛盾検出',      'AI出力',    '検証結果',     '永続ルール'),
+    ]
+    layer_colors = {'1': L1_COLOR, '2': L2_COLOR, '3': L3_COLOR, '4': L4_COLOR}
+    for row in sim_rows:
+        cells = [Paragraph(c, s['tc']) for c in row]
+        sim_data.append(cells)
+
+    st = Table(sim_data, colWidths=[W*0.16, W*0.05, W*0.28, W*0.15, W*0.16, W*0.20])
+    style_cmds = [
+        ('BACKGROUND', (0,0), (-1,0), C_BG_HEADER),
+        ('GRID', (0,0), (-1,-1), 0.4, C_BORDER),
+        ('TOPPADDING', (0,0), (-1,-1), 1.2*mm),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1.2*mm),
+        ('LEFTPADDING', (0,0), (-1,-1), 1.5*mm),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('FONTSIZE', (0,0), (-1,-1), 7.5),
+    ]
+    # 層ごとの色帯
+    row_idx = 1
+    for row in sim_rows:
+        lc = HexColor(layer_colors[row[1]])
+        style_cmds.append(('BACKGROUND', (1, row_idx), (1, row_idx), lc))
+        style_cmds.append(('TEXTCOLOR', (1, row_idx), (1, row_idx), white))
+        row_idx += 1
+    st.setStyle(TableStyle(style_cmds))
+    story.append(st)
+
     story.append(Spacer(1, 4*mm))
-
-    # ヒートマップ
-    map3_path = '/tmp/grounding_map3.png'
-    generate_map3_chart(map3_path)
-    story.append(Image(map3_path, width=W, height=W*0.67))
-    story.append(Paragraph('図3: 各手法のパイプラインカバレッジ（●がカバー範囲、左端の色帯がカテゴリ）', s['caption']))
-
-    story.append(PageBreak())
-
-    # 地図3の読み取り
-    story.append(Paragraph('パイプライン図の読み取りポイント', s['h2']))
-    pipe_insights = [
-        '<b>「誰も全ステージをカバーしない」</b>: どの手法も単独ではライフサイクル全体をカバーできない。これがハイブリッドアプローチの必然性を示す。',
-        '<b>上流専門（①②）</b>: オントロジー、タクソノミー、デジタルツイン — 知識の定義・構造化に特化',
-        '<b>中流専門（③④⑤）</b>: RAG、エンベディング検索 — 知識の格納・検索・注入に特化',
-        '<b>下流専門（⑥⑦）</b>: ガードレール、スキーマ検証 — 出力の制御・品質保証に特化',
-        '<b>フィードバック不足</b>: ステージ⑧をカバーする手法が少ない。メモリシステムとFeature Storeがギャップを埋める',
-        '<b>エージェンティックAI</b>: 特定ステージに属さず、パイプライン全体をオーケストレーションする存在',
-    ]
-    for ins in pipe_insights:
-        story.append(Paragraph(f'• {ins}', s['bullet']))
-
-    # フルスタック例
-    story.append(Spacer(1, 3*mm))
-    story.append(Paragraph('フルスタック・グラウンディングの構成例', s['h3']))
-    stack_data = [
-        [Paragraph('<b>ステージ</b>', s['table_header']),
-         Paragraph('<b>担当手法</b>', s['table_header']),
-         Paragraph('<b>役割</b>', s['table_header'])],
-        ['②構造化', 'OWLオントロジー', '概念定義・ドメインモデル'],
-        ['②③④', 'ナレッジグラフ', 'エンティティ・関係の格納と検索'],
-        ['③④⑤', 'Graph RAG', 'グラフ走査による検索と注入'],
-        ['⑦', 'ガードレール', '安全性・品質チェック'],
-        ['⑤⑧', 'メモリシステム', '対話履歴の注入とフィードバック'],
-    ]
-    for i in range(1, len(stack_data)):
-        stack_data[i] = [Paragraph(stack_data[i][j], s['table_cell']) for j in range(3)]
-    stack_table = Table(stack_data, colWidths=[W*0.15, W*0.35, W*0.5])
-    stack_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), C_BG_HEADER),
-        ('GRID', (0, 0), (-1, -1), 0.5, C_BORDER),
-        ('TOPPADDING', (0, 0), (-1, -1), 1.5*mm),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5*mm),
-        ('LEFTPADDING', (0, 0), (-1, -1), 2*mm),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [white, C_BG_LIGHT]),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-    ]))
-    story.append(stack_table)
-
-    story.append(PageBreak())
-
-    # ==== 6. 技術横断比較マトリクス ====
-    story.append(Paragraph('6. 技術横断比較マトリクス', s['h1']))
-    story.append(Paragraph(
-        '全手法を5つの評価軸で横断的に比較する。', s['body']))
-
-    # 比較表
-    matrix_header = [
-        Paragraph('<b>手法</b>', s['table_header']),
-        Paragraph('<b>意味の\n明示度</b>', s['table_header']),
-        Paragraph('<b>運用\n結合度</b>', s['table_header']),
-        Paragraph('<b>スケーラ\nビリティ</b>', s['table_header']),
-        Paragraph('<b>維持\nコスト</b>', s['table_header']),
-        Paragraph('<b>知識の鮮度</b>', s['table_header']),
-    ]
-    matrix_data = [matrix_header]
-    matrix_rows = [
-        ('OWLオントロジー',      '★★★★★', '★★★★', '★★',   '高',   '手動更新'),
-        ('ナレッジグラフ',       '★★★★',  '★★★★', '★★★',  '中〜高', 'パイプライン'),
-        ('タクソノミー',         '★★★',   '★★★',  '★★★★', '低〜中', '手動レビュー'),
-        ('スキーマ/データモデル', '★★★',   '★★★★', '★★★★', '中',   '設計時固定'),
-        ('形式論理/ルール',      '★★★★★', '★★★★★','★★',   '高',   '手動更新'),
-        ('RAG (Naive/Advanced)', '★★★',   '★★★',  '★★★★', '中',   'リアルタイム'),
-        ('Graph RAG',           '★★★★',  '★★★★', '★★★',  '高',   'リアルタイム'),
-        ('平ドキュメント',       '★★',    '★',    '★★',   '最低',  '手動更新'),
-        ('エンベディング検索',    '★★★',   '★★★',  '★★★★', '中',   'インデックス更新'),
-        ('構造化プロンプティング', '★★★',   '★',    '★★★',  '最低',  'モデル依存'),
-        ('ツール利用/MCP',       '★★★★',  '★★★★★','★★★★', '中',   'リアルタイム'),
-        ('デジタルツイン',       '★★★★',  '★★★★★','★★',   '最高',  'リアルタイム'),
-        ('マルチモーダル',       '★★★',   '★★★★', '★★★',  '高',   'リアルタイム'),
-        ('ファインチューニング',  '★',     '★★',   '★★',   '高',   '訓練時固定'),
-        ('ガードレール',         '★★★',   '★★★★', '★★★',  '中',   'ルール更新'),
-        ('セマンティックレイヤー', '★★★★',  '★★★★', '★★★★', '中',   'メタデータ更新'),
-        ('Feature Store',       '★★★',   '★★★★', '★★★★', '中',   'パイプライン'),
-        ('メモリシステム',       '★★',    '★★★',  '★★★',  '中',   '自己更新'),
-    ]
-    for row in matrix_rows:
-        matrix_data.append([Paragraph(cell, s['table_cell']) for cell in row])
-
-    col_w = [W*0.22, W*0.13, W*0.13, W*0.13, W*0.12, W*0.27]
-    m_table = Table(matrix_data, colWidths=col_w)
-    m_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), C_BG_HEADER),
-        ('TEXTCOLOR', (0, 0), (-1, 0), white),
-        ('GRID', (0, 0), (-1, -1), 0.4, C_BORDER),
-        ('FONTSIZE', (0, 0), (-1, -1), 7.5),
-        ('TOPPADDING', (0, 0), (-1, -1), 1.2*mm),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.2*mm),
-        ('LEFTPADDING', (0, 0), (-1, -1), 1.5*mm),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [white, C_BG_LIGHT]),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-    ]))
-    story.append(m_table)
-
-    story.append(Spacer(1, 3*mm))
-    story.append(Paragraph(
-        '※ ★の数は度合いの高さを表す。維持コストは「高」ほどコストが大きい。', s['body_small']))
-
-    story.append(PageBreak())
-
-    # ==== 7. 手法選定ガイド ====
-    story.append(Paragraph('7. 手法選定ガイドと進化の方向性', s['h1']))
-
-    story.append(Paragraph('要件に応じた手法選定フロー', s['h2']))
-
-    flow_data = [
-        [Paragraph('<b>要件</b>', s['table_header']),
-         Paragraph('<b>推奨手法</b>', s['table_header']),
-         Paragraph('<b>理由</b>', s['table_header'])],
-    ]
-    flow_rows = [
-        ('手軽に始めたい（PoC）',
-         '平ドキュメント\n+ 構造化プロンプティング',
-         'インフラ不要。テキスト編集だけで即開始可能'),
-        ('大量文書からの質問応答',
-         'RAG（Advanced）\n+ エンベディング検索',
-         '動的検索で知識量の壁を突破。ハイブリッド検索で精度向上'),
-        ('複雑な関連性の推論が必要',
-         'Graph RAG\n+ ナレッジグラフ',
-         'マルチホップ推論とエンティティ間の関係走査が可能'),
-        ('リアルタイムの外部データが必要',
-         'ツール利用/MCP\n（+ RAG）',
-         'API経由の最新データ取得。MCPで統合を標準化'),
-        ('規制遵守・安全性が最優先',
-         'ガードレール\n+ 形式論理\n+ オントロジー',
-         '多層的な出力制御と監査可能な意思決定過程'),
-        ('物理世界との統合',
-         'デジタルツイン\n+ マルチモーダル',
-         'センサーデータと物理法則に基づくAI予測'),
-        ('モデルの行動・スタイル変更',
-         'ファインチューニング/RLHF\n（+ RAG）',
-         'パラメータレベルでの行動制御。RAGと組み合わせが最適'),
-    ]
-    for req, rec, reason in flow_rows:
-        flow_data.append([
-            Paragraph(req, s['table_cell']),
-            Paragraph(rec, s['table_cell']),
-            Paragraph(reason, s['table_cell']),
-        ])
-    flow_table = Table(flow_data, colWidths=[W*0.25, W*0.3, W*0.45])
-    flow_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), C_BG_HEADER),
-        ('GRID', (0, 0), (-1, -1), 0.5, C_BORDER),
-        ('TOPPADDING', (0, 0), (-1, -1), 2*mm),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2*mm),
-        ('LEFTPADDING', (0, 0), (-1, -1), 2*mm),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [white, C_BG_LIGHT]),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-    ]))
-    story.append(flow_table)
-
-    story.append(Spacer(1, 5*mm))
-
-    # 2025-2026トレンド
-    story.append(Paragraph('2025-2026年の主要トレンド', s['h2']))
-    trends = [
-        ('<b>コンテキストエンジニアリングの台頭</b>: '
-         '単なるRAGを超え、タスク・場面に応じた最適なコンテキストを動的に組み立てる技術が最重要に'),
-        ('<b>エージェンティックAIの標準化</b>: '
-         '全グラウンディング手法を統合するオーケストレーション層としてのAIエージェントが普及。'
-         '85%のエンタープライズが2025年にAIエージェントをワークフローに組み込むと予測'),
-        ('<b>MCPの業界標準確立</b>: '
-         'Anthropic発のModel Context Protocolが2025年12月にLinux Foundation傘下に移管。'
-         'AIとツール・データの接続における事実上の標準'),
-        ('<b>ニューロシンボリックAIの実用化</b>: '
-         'LLMの柔軟性と形式論理の厳密性を組み合わせるハイブリッドが主流に。'
-         'Amazonが倉庫ロボットに適用済み'),
-        ('<b>ガバナンスの設計時組み込み</b>: '
-         'EU AI Act等への対応として、後付けではなく設計段階からガバナンスを組み込む動きが加速'),
-        ('<b>RAGの「知識ランタイム」化</b>: '
-         'RAGは単なる検索パターンから、検証・推論・アクセス制御・監査証跡を統合管理する'
-         'オーケストレーション層へ進化'),
-    ]
-    for t in trends:
-        story.append(Paragraph(f'• {t}', s['bullet']))
-
-    story.append(Spacer(1, 8*mm))
 
     # 結語
-    conclusion_data = [[Paragraph(
-        '<b>結語</b>: グラウンディングの未来は、単一手法の選択ではなく、'
-        '複数手法の多層的合成にある。本資料の3つの地図は、その合成設計の'
-        '羅針盤として活用していただきたい。',
-        ParagraphStyle('Conclusion', fontName='IPAPGothic', fontSize=10,
+    conc = [[Paragraph(
+        '<b>結語:</b> グラウンディング手法の選定は「どの1つを選ぶか」ではなく、'
+        '「4つの問い（構造化・配送・統合・保証）にそれぞれどう答えるか」を設計することである。'
+        '同じ層内では要件に応じて最適な手法を選択し、異なる層の手法は積み重ねて合成する。'
+        'これが本資料の最も重要なメッセージである。',
+        ParagraphStyle('Conc', fontName='IPAPGothic', fontSize=10,
                       leading=16, textColor=C_PRIMARY))]]
-    conc_table = Table(conclusion_data, colWidths=[W])
-    conc_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), HexColor('#ebf8ff')),
-        ('BOX', (0, 0), (-1, -1), 1, C_SECONDARY),
-        ('TOPPADDING', (0, 0), (-1, -1), 4*mm),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4*mm),
-        ('LEFTPADDING', (0, 0), (-1, -1), 4*mm),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 4*mm),
+    ct2 = Table(conc, colWidths=[W])
+    ct2.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), HexColor('#ebf8ff')),
+        ('BOX', (0,0), (-1,-1), 1, C_SECONDARY),
+        ('TOPPADDING', (0,0), (-1,-1), 4*mm),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4*mm),
+        ('LEFTPADDING', (0,0), (-1,-1), 4*mm),
+        ('RIGHTPADDING', (0,0), (-1,-1), 4*mm),
     ]))
-    story.append(conc_table)
+    story.append(ct2)
 
-    # ==== ビルド ====
     doc.build(story, onFirstPage=add_page_number, onLaterPages=add_page_number)
     print(f"PDF generated: {output_path}")
 
-
-# ==============================================================================
-# メイン
-# ==============================================================================
 if __name__ == '__main__':
-    output = '/home/user/grounding-research/grounding-techniques-map.pdf'
-    build_pdf(output)
+    build_pdf('/home/user/grounding-research/grounding-techniques-map.pdf')
